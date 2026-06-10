@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: '"Source Han Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', system-ui, sans-serif;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-100 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+  }
+}
+
+@layer components {
+  .stat-card {
+    @apply relative overflow-hidden rounded-xl p-6 text-white shadow-card hover:shadow-card-hover transition-all duration-300;
+  }
+
+  .stat-card::before {
+    content: '';
+    @apply absolute top-0 right-0 w-32 h-32 opacity-10;
+    background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, transparent 70%);
+  }
+
+  .content-card {
+    @apply bg-white rounded-xl shadow-card border border-slate-100;
+  }
+
+  .content-card-hover {
+    @apply content-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-fire-600 text-white text-sm font-medium shadow-sm hover:bg-fire-700 active:bg-fire-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-white text-slate-700 text-sm font-medium border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-slate-600 text-sm font-medium hover:bg-slate-100 transition-colors;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all duration-200;
+  }
+
+  .nav-item-active {
+    @apply text-white bg-gradient-to-r from-fire-600/20 to-transparent border-l-2 border-fire-500;
+  }
+
+  .badge-dot {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .table-header {
+    @apply px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider bg-slate-50 border-b border-slate-100;
+  }
+
+  .table-cell {
+    @apply px-4 py-3 text-sm text-slate-700 border-b border-slate-50;
+  }
+
+  .input-field {
+    @apply w-full px-3 py-2 rounded-md border border-slate-200 bg-white text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-fire-500 focus:ring-2 focus:ring-fire-500/20 transition-all;
+  }
+
+  .select-field {
+    @apply w-full px-3 py-2 rounded-md border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:border-fire-500 focus:ring-2 focus:ring-fire-500/20 transition-all;
+  }
+
+  .tabs-btn {
+    @apply px-4 py-2 text-sm font-medium text-slate-500 border-b-2 border-transparent hover:text-slate-700 transition-colors;
+  }
+
+  .tabs-btn-active {
+    @apply text-fire-600 border-fire-600;
+  }
+
+  .progress-bar {
+    @apply h-2 rounded-full bg-slate-100 overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500 ease-out;
+  }
+
+  .timeline-dot {
+    @apply absolute left-0 top-1 w-3 h-3 rounded-full border-2 border-white;
+  }
+
+  .kanban-column {
+    @apply flex-shrink-0 w-72 bg-slate-50 rounded-xl p-4;
+  }
+
+  .kanban-card {
+    @apply bg-white rounded-lg p-4 shadow-card border border-slate-100 mb-3 hover:shadow-card-hover transition-all cursor-pointer;
+  }
+}
