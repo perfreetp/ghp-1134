@@ -434,27 +434,27 @@ export const hazards: Hazard[] = [
 
 export const hazardRectifies: HazardRectify[] = [
   // hz_001
-  { id: 'hr_001', hazard_id: 'hz_001', action: '联系消防器材供应商，对灭火器进行拆卸检查，确认压力表内部弹簧老化，更换新压力表并重新加压。', photos: [], remark: '更换后压力显示正常，保压测试合格', status: 'passed', submit_time: '2026-05-18 14:00:00', review_time: '2026-05-22 10:00:00', reviewer: '张建国' },
+  { id: 'hr_001', hazard_id: 'hz_001', action: '联系消防器材供应商，对灭火器进行拆卸检查，确认压力表内部弹簧老化，更换新压力表并重新加压。', photos: [], remark: '更换后压力显示正常，保压测试合格', status: 'passed', submit_time: '2026-05-18 14:00:00', submitter: '李秀英', review_time: '2026-05-22 10:00:00', reviewer: '张建国' },
   // hz_002
-  { id: 'hr_002', hazard_id: 'hz_002', action: '关闭屋顶消火栓总阀门，拆卸阀盖更换新的密封垫片，研磨密封面后重新组装，水压测试24小时无渗漏。', photos: [], status: 'passed', submit_time: '2026-05-24 11:30:00', review_time: '2026-05-26 14:30:00', reviewer: '陈海涛' },
+  { id: 'hr_002', hazard_id: 'hz_002', action: '关闭屋顶消火栓总阀门，拆卸阀盖更换新的密封垫片，研磨密封面后重新组装，水压测试24小时无渗漏。', photos: [], status: 'passed', submit_time: '2026-05-24 11:30:00', submitter: '王志强', review_time: '2026-05-26 14:30:00', reviewer: '陈海涛' },
   // hz_003
-  { id: 'hr_003', hazard_id: 'hz_003', action: '组织实验室人员清理通道杂物，将闲置设备转移至指定储藏区域，清理完毕后通道宽度恢复至2.2米。', photos: [], remark: '已约谈实验室负责人，加强日常管理', status: 'passed', submit_time: '2026-04-15 16:00:00', review_time: '2026-04-16 09:30:00', reviewer: '周美玲' },
+  { id: 'hr_003', hazard_id: 'hz_003', action: '组织实验室人员清理通道杂物，将闲置设备转移至指定储藏区域，清理完毕后通道宽度恢复至2.2米。', photos: [], remark: '已约谈实验室负责人，加强日常管理', status: 'passed', submit_time: '2026-04-15 16:00:00', submitter: '刘德明', review_time: '2026-04-16 09:30:00', reviewer: '周美玲' },
   // hz_004
-  { id: 'hr_004', hazard_id: 'hz_004', action: '拆除原有应急灯调整安装方向，通电测试确认指示灯指向正确的疏散楼梯方向。', photos: [], status: 'passed', submit_time: '2026-04-20 10:00:00', review_time: '2026-04-22 15:00:00', reviewer: '张建国' },
+  { id: 'hr_004', hazard_id: 'hz_004', action: '拆除原有应急灯调整安装方向，通电测试确认指示灯指向正确的疏散楼梯方向。', photos: [], status: 'passed', submit_time: '2026-04-20 10:00:00', submitter: '吴大鹏', review_time: '2026-04-22 15:00:00', reviewer: '张建国' },
   // hz_005
-  { id: 'hr_005', hazard_id: 'hz_005', action: '采购同型号全新推车式干粉灭火器进行整瓶更换，旧灭火器回收交由有资质单位处理。', photos: [], remark: '新灭火器有效期至2029年5月', status: 'passed', submit_time: '2026-05-26 09:00:00', review_time: '2026-05-27 10:00:00', reviewer: '张建国' },
+  { id: 'hr_005', hazard_id: 'hz_005', action: '采购同型号全新推车式干粉灭火器进行整瓶更换，旧灭火器回收交由有资质单位处理。', photos: [], remark: '新灭火器有效期至2029年5月', status: 'passed', submit_time: '2026-05-26 09:00:00', submitter: '张建国', review_time: '2026-05-27 10:00:00', reviewer: '张建国' },
   // hz_006
-  { id: 'hr_006', hazard_id: 'hz_006', action: '联系设备厂家技术人员到场，对8个传感器进行逐一校准，更换老化电路板2块，系统联调测试通过。', photos: [], remark: '建议每月增加一次功能性自检', status: 'submitted', submit_time: '2026-06-12 14:00:00' },
+  { id: 'hr_006', hazard_id: 'hz_006', action: '联系设备厂家技术人员到场，对8个传感器进行逐一校准，更换老化电路板2块，系统联调测试通过。', photos: [], remark: '建议每月增加一次功能性自检', status: 'submitted', submit_time: '2026-06-12 14:00:00', submitter: '王志强' },
   // hz_007
-  { id: 'hr_007', hazard_id: 'hz_007', action: '采购同型号温度探头5个（含3个备用），现场更换损坏探头并重新接线设置参数，系统报警测试正常。', photos: [], status: 'submitted', submit_time: '2026-06-15 16:30:00' },
+  { id: 'hr_007', hazard_id: 'hz_007', action: '采购同型号温度探头5个（含3个备用），现场更换损坏探头并重新接线设置参数，系统报警测试正常。', photos: [], status: 'submitted', submit_time: '2026-06-15 16:30:00', submitter: '王志强' },
   // hz_008
-  { id: 'hr_008', hazard_id: 'hz_008', action: '定制同规格不锈钢灭火器箱1组，现场拆除旧箱体并安装新箱，内部灭火器已重新放置固定。', photos: [], status: 'submitted', submit_time: '2026-06-16 11:00:00' },
+  { id: 'hr_008', hazard_id: 'hz_008', action: '定制同规格不锈钢灭火器箱1组，现场拆除旧箱体并安装新箱，内部灭火器已重新放置固定。', photos: [], status: 'submitted', submit_time: '2026-06-16 11:00:00', submitter: '李秀英' },
   // hz_009
-  { id: 'hr_009', hazard_id: 'hz_009', action: '已联系电池供应商订购防爆型应急灯专用锂电池12块，预计6月18日到货后统一更换。', photos: [], remark: '到货后3个工作日内完成更换和测试', status: 'submitted', submit_time: '2026-06-12 09:00:00' },
+  { id: 'hr_009', hazard_id: 'hz_009', action: '已联系电池供应商订购防爆型应急灯专用锂电池12块，预计6月18日到货后统一更换。', photos: [], remark: '到货后3个工作日内完成更换和测试', status: 'submitted', submit_time: '2026-06-12 09:00:00', submitter: '王志强' },
   // hz_010
-  { id: 'hr_010', hazard_id: 'hz_010', action: '拆卸应急灯电源板检测，发现2个电容鼓包，已采购同款主板，预计6月15日到件后更换。', photos: [], status: 'submitted', submit_time: '2026-06-10 15:30:00' },
+  { id: 'hr_010', hazard_id: 'hz_010', action: '拆卸应急灯电源板检测，发现2个电容鼓包，已采购同款主板，预计6月15日到件后更换。', photos: [], status: 'submitted', submit_time: '2026-06-10 15:30:00', submitter: '王志强' },
   // hz_011
-  { id: 'hr_011', hazard_id: 'hz_011', action: '检查喷淋系统管路上的减压阀和稳压设备，发现稳压泵压力设定值偏低，正在重新调整参数并进行全管路打压测试。', photos: [], status: 'submitted', submit_time: '2026-06-10 11:00:00' },
+  { id: 'hr_011', hazard_id: 'hz_011', action: '检查喷淋系统管路上的减压阀和稳压设备，发现稳压泵压力设定值偏低，正在重新调整参数并进行全管路打压测试。', photos: [], status: 'submitted', submit_time: '2026-06-10 11:00:00', submitter: '王志强' },
 ];
 
 export default {

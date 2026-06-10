@@ -26,10 +26,12 @@ import {
   CircleDot,
   Upload,
   Trash2,
+  FileText,
+  ClipboardList,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import type { Hazard, HazardRectify } from '@/types';
-import { HazardLevel, HazardStatus, HazardLevelLabels, HazardStatusLabels } from '@/types';
+import { HazardLevel, HazardStatus, HazardLevelLabels, HazardStatusLabels, HazardSource } from '@/types';
 import {
   cn,
   formatDate,
@@ -110,6 +112,35 @@ function LevelBadge({ level, size = 'md' }: { level: HazardLevel; size?: 'sm' | 
     >
       <Icon size={size === 'sm' ? 12 : 13} />
       {HazardLevelLabels[level]}
+    </span>
+  );
+}
+
+const HazardSourceLabels: Record<HazardSource, string> = {
+  [HazardSource.MANUAL]: '手动登记',
+  [HazardSource.INSPECTION]: '巡检发现',
+};
+
+const sourceConfig: Record<HazardSource, { icon: typeof FileText; bg: string; text: string; border: string }> = {
+  [HazardSource.MANUAL]: { icon: FileText, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
+  [HazardSource.INSPECTION]: { icon: ClipboardList, bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-200' },
+};
+
+function SourceBadge({ source, size = 'md' }: { source: HazardSource; size?: 'sm' | 'md' }) {
+  const config = sourceConfig[source];
+  const Icon = config.icon;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md font-medium border',
+        config.bg,
+        config.text,
+        config.border,
+        size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'
+      )}
+    >
+      <Icon size={size === 'sm' ? 12 : 13} />
+      {HazardSourceLabels[source]}
     </span>
   );
 }
@@ -205,7 +236,8 @@ function HazardCard({
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <LevelBadge level={hazard.level} />
+          <LevelBadge level={hazard.level} size="sm" />
+          <SourceBadge source={hazard.source || HazardSource.MANUAL} size="sm" />
           <span
             className={cn(
               'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border',
@@ -645,10 +677,12 @@ function AssignModal({
 
   const handleSubmit = () => {
     if (!canSubmit || !hazard) return;
+    const assigner = users.find((u) => u.role === 'safety_manager')?.name || '安全管理员';
     assignHazard(hazard.id, {
       responsible_dept: dept,
       responsible_person: personName,
       deadline,
+      assigner_name: assigner,
     });
     onClose();
   };
@@ -759,7 +793,7 @@ function RectifyModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { submitHazardRectify } = useAppStore();
+  const { submitHazardRectify, users } = useAppStore();
 
   const [action, setAction] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
@@ -784,11 +818,14 @@ function RectifyModal({
 
   const handleSubmit = () => {
     if (!canSubmit || !hazard) return;
+    const submitter = users.find((u) => u.name === hazard.responsible_person) || users.find((u) => u.role === 'inspector') || users[0];
     submitHazardRectify({
       hazard_id: hazard.id,
       action,
       photos,
       remark: remark || undefined,
+      submitter: submitter?.name || '整改人',
+      submitter_id: submitter?.id || '',
     });
     resetForm();
     onClose();
@@ -938,6 +975,19 @@ function RejectModal({
   );
 }
 
+interface TimelineItem {
+  id: string;
+  type: 'register' | 'assign' | 'submit' | 'review_pass' | 'review_reject';
+  title: string;
+  time: string;
+  operator: string;
+  status: string;
+  remark?: string;
+  action?: string;
+  photos?: string[];
+  reviewRemark?: string;
+}
+
 function DetailModal({
   hazard,
   rectifies,
@@ -956,12 +1006,120 @@ function DetailModal({
   const currentStepIndex = statusSteps.findIndex((s) => s.key === hazard.status);
   const overdue = isOverdue(hazard.deadline);
 
+  const timelineItems = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = [];
+
+    items.push({
+      id: 'register',
+      type: 'register',
+      title: '隐患登记',
+      time: hazard.created_at,
+      operator: hazard.reporter_name,
+      status: '已登记',
+    });
+
+    if (hazard.assigned_at && hazard.assigned_by) {
+      items.push({
+        id: 'assign',
+        type: 'assign',
+        title: '隐患派单',
+        time: hazard.assigned_at,
+        operator: hazard.assigned_by,
+        status: '已派单',
+      });
+    }
+
+    const sortedRectifies = [...rectifies].sort(
+      (a, b) => new Date(a.submit_time).getTime() - new Date(b.submit_time).getTime()
+    );
+
+    sortedRectifies.forEach((r, idx) => {
+      items.push({
+        id: `submit-${r.id}`,
+        type: 'submit',
+        title: `整改提交 #${idx + 1}`,
+        time: r.submit_time,
+        operator: r.submitter,
+        status: r.status === 'submitted' ? '待复查' : r.status === 'passed' ? '已通过' : '已驳回',
+        action: r.action,
+        remark: r.remark,
+        photos: r.photos,
+      });
+
+      if (r.review_time && r.reviewer) {
+        items.push({
+          id: `review-${r.id}`,
+          type: r.status === 'passed' ? 'review_pass' : 'review_reject',
+          title: r.status === 'passed' ? '复查通过' : '复查驳回',
+          time: r.review_time,
+          operator: r.reviewer,
+          status: r.status === 'passed' ? '已通过' : '已驳回',
+          reviewRemark: r.review_remark,
+        });
+      }
+    });
+
+    return items;
+  }, [hazard, rectifies]);
+
+  const getTimelineDotStyle = (type: TimelineItem['type']) => {
+    switch (type) {
+      case 'register':
+        return 'bg-sky-500 ring-2 ring-sky-100';
+      case 'assign':
+        return 'bg-blue-500 ring-2 ring-blue-100';
+      case 'submit':
+        return 'bg-amber-500 ring-2 ring-amber-100';
+      case 'review_pass':
+        return 'bg-emerald-500 ring-2 ring-emerald-100';
+      case 'review_reject':
+        return 'bg-red-500 ring-2 ring-red-100';
+      default:
+        return 'bg-slate-500 ring-2 ring-slate-100';
+    }
+  };
+
+  const getTimelineIcon = (type: TimelineItem['type']) => {
+    switch (type) {
+      case 'register':
+        return <CircleDot size={8} className="text-white" />;
+      case 'assign':
+        return <Send size={8} className="text-white" />;
+      case 'submit':
+        return <FileCheck size={8} className="text-white" />;
+      case 'review_pass':
+        return <Check size={8} className="text-white" strokeWidth={3} />;
+      case 'review_reject':
+        return <X size={8} className="text-white" strokeWidth={3} />;
+      default:
+        return <CircleDot size={8} className="text-white" />;
+    }
+  };
+
+  const getStatusBadgeStyle = (type: TimelineItem['type']) => {
+    switch (type) {
+      case 'register':
+        return 'bg-slate-50 text-slate-600';
+      case 'assign':
+        return 'bg-blue-50 text-blue-600';
+      case 'submit':
+        return 'bg-amber-50 text-amber-600';
+      case 'review_pass':
+        return 'bg-emerald-50 text-emerald-600';
+      case 'review_reject':
+        return 'bg-red-50 text-red-600';
+      default:
+        return 'bg-slate-50 text-slate-600';
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
             <LevelBadge level={hazard.level} size="sm" />
+            <SourceBadge source={hazard.source || HazardSource.MANUAL} size="sm" />
             <h3 className="text-lg font-semibold text-slate-800">{hazard.title}</h3>
             <span className="text-xs text-slate-400 font-mono">{hazard.id.toUpperCase()}</span>
           </div>
@@ -1047,6 +1205,22 @@ function DetailModal({
                 </span>
               </div>
               <div>
+                <p className="text-xs text-slate-500 mb-1">隐患来源</p>
+                <SourceBadge source={hazard.source || HazardSource.MANUAL} size="sm" />
+              </div>
+              {hazard.source === HazardSource.INSPECTION && hazard.source_task_title && (
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">来源任务</p>
+                  <p className="text-sm font-medium text-slate-800 truncate" title={hazard.source_task_title}>
+                    {hazard.source_task_title}
+                  </p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-slate-500 mb-1">整改次数</p>
+                <p className="text-sm font-medium text-slate-800">{hazard.rectify_count || 0} 次</p>
+              </div>
+              <div>
                 <p className="text-xs text-slate-500 mb-1">上报人</p>
                 <div className="flex items-center gap-2">
                   <div
@@ -1110,98 +1284,80 @@ function DetailModal({
           <div>
             <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
               <Clock3 size={15} className="text-sky-500" />
-              整改记录
+              流转时间线
             </h4>
             <div className="bg-white border border-slate-200 rounded-xl p-5">
               <div className="relative pl-6">
                 <div className="absolute left-[11px] top-1 bottom-1 w-0.5 bg-slate-200" />
                 <div className="space-y-5">
-                  <div className="relative">
-                    <div className="absolute -left-[22px] top-1 w-4 h-4 rounded-full bg-sky-500 border-2 border-white ring-2 ring-sky-100 flex items-center justify-center">
-                      <CircleDot size={8} className="text-white" />
-                    </div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-medium text-slate-800">隐患登记</span>
-                      <span className="text-xs text-slate-400">{formatDateTime(hazard.created_at)}</span>
-                    </div>
-                    <p className="text-sm text-slate-600">
-                      由 <span className="font-medium">{hazard.reporter_name}</span> 上报并登记
-                    </p>
-                  </div>
-
-                  {rectifies.length > 0 ? (
-                    rectifies.map((r, idx) => (
-                      <div key={r.id} className="relative">
-                        <div
+                  {timelineItems.map((item) => (
+                    <div key={item.id} className="relative">
+                      <div
+                        className={cn(
+                          'absolute -left-[22px] top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center',
+                          getTimelineDotStyle(item.type)
+                        )}
+                      >
+                        {getTimelineIcon(item.type)}
+                      </div>
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <span className="text-sm font-medium text-slate-800">{item.title}</span>
+                        <span
                           className={cn(
-                            'absolute -left-[22px] top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center',
-                            r.status === 'passed'
-                              ? 'bg-emerald-500 ring-2 ring-emerald-100'
-                              : r.status === 'rejected'
-                              ? 'bg-red-500 ring-2 ring-red-100'
-                              : 'bg-amber-500 ring-2 ring-amber-100'
+                            'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
+                            getStatusBadgeStyle(item.type)
                           )}
                         >
-                          {r.status === 'passed' ? (
-                            <Check size={8} className="text-white" strokeWidth={3} />
-                          ) : r.status === 'rejected' ? (
-                            <X size={8} className="text-white" strokeWidth={3} />
-                          ) : (
-                            <Clock3 size={8} className="text-white" />
+                          {item.status}
+                        </span>
+                        <span className="text-xs text-slate-400 ml-auto">{formatDateTime(item.time)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div
+                          className={cn(
+                            'w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px]',
+                            getAvatarColor(item.operator)
                           )}
+                        >
+                          {getInitials(item.operator)}
                         </div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-slate-800">
-                            整改提交 #{idx + 1}
-                          </span>
-                          <span className="text-xs text-slate-400">{formatDateTime(r.submit_time)}</span>
-                          <span
-                            className={cn(
-                              'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
-                              r.status === 'passed'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : r.status === 'rejected'
-                                ? 'bg-red-50 text-red-700'
-                                : 'bg-amber-50 text-amber-700'
-                            )}
-                          >
-                            {r.status === 'passed'
-                              ? '已通过'
-                              : r.status === 'rejected'
-                              ? '已驳回'
-                              : '待审核'}
-                          </span>
+                        <span className="text-xs text-slate-600">
+                          处理人：<span className="font-medium text-slate-700">{item.operator}</span>
+                        </span>
+                      </div>
+                      {item.action && (
+                        <p className="text-sm text-slate-600 mb-2">{item.action}</p>
+                      )}
+                      {item.remark && (
+                        <div className="bg-slate-50 rounded-lg px-3 py-2 mb-2">
+                          <p className="text-xs text-slate-500">
+                            <span className="font-medium">整改备注：</span>
+                            {item.remark}
+                          </p>
                         </div>
-                        <p className="text-sm text-slate-600 mb-2">{r.action}</p>
-                        {r.remark && (
-                          <p className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg mb-2">
-                            备注：{r.remark}
+                      )}
+                      {item.reviewRemark && (
+                        <div className="bg-slate-50 rounded-lg px-3 py-2 mb-2">
+                          <p className="text-xs text-slate-500">
+                            <span className="font-medium">复查意见：</span>
+                            {item.reviewRemark}
                           </p>
-                        )}
-                        {r.photos && r.photos.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {r.photos.map((p, pi) => (
-                              <div key={pi} className="w-16 h-16 rounded overflow-hidden border border-slate-200">
-                                <img src={p} alt="" className="w-full h-full object-cover" />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {r.review_time && (
-                          <p className="text-xs text-slate-400 mt-1.5">
-                            由 {r.reviewer} 于 {formatDateTime(r.review_time)} 审核
-                          </p>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="relative">
-                      <div className="absolute -left-[22px] top-1 w-4 h-4 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center">
-                        <Clock3 size={8} className="text-white" />
-                      </div>
-                      <p className="text-sm text-slate-400">暂无整改记录</p>
+                        </div>
+                      )}
+                      {item.photos && item.photos.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-1">
+                          {item.photos.map((p, pi) => (
+                            <div
+                              key={pi}
+                              className="w-16 h-16 rounded-lg overflow-hidden border border-slate-200"
+                            >
+                              <img src={p} alt="" className="w-full h-full object-cover" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
             </div>

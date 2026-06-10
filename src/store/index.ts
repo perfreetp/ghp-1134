@@ -15,6 +15,7 @@ import type {
   TaskStatus,
   HazardLevel,
   HazardStatus,
+  HazardSource,
   Statistics,
   TrendData,
   TodoItem,
@@ -30,6 +31,7 @@ import {
   TaskStatus as TaskStatusEnum,
   HazardLevel as HazardLevelEnum,
   HazardStatus as HazardStatusEnum,
+  HazardSource as HazardSourceEnum,
   RiskLevel as RiskLevelEnum,
   EquipmentStatus as EquipmentStatusEnum,
   CheckCycle as CheckCycleEnum,
@@ -149,17 +151,28 @@ interface AppStore {
   getHazardLevelDistribution: () => HazardLevelDistributionItem[];
   getMaintenancesByEquipmentId: (equipmentId: string) => EquipmentMaintenance[];
   updateEquipmentCheckCycle: (category: EquipmentCategory | string, cycle: CheckCycle) => void;
+  updateSingleEquipmentCycle: (equipmentId: string, cycle: CheckCycle) => void;
   addChangeLog: (log: Omit<ChangeLog, 'id' | 'operated_at'>) => void;
   addDrill: (drill: Omit<Drill, 'id' | 'created_at'>) => void;
 
   createInspectionTask: (data: Omit<InspectionTask, 'id' | 'created_at' | 'status' | 'progress'>) => void;
   addInspectionRecord: (record: Omit<InspectionRecord, 'id'>) => void;
   updateTaskStatus: (taskId: string, status: TaskStatus) => void;
+  registerHazardFromInspection: (data: {
+    record: Omit<InspectionRecord, 'id'>;
+    task_id: string;
+    task_title: string;
+    hazard_level?: HazardLevel;
+    hazard_title?: string;
+    reporter_id: string;
+    reporter_name: string;
+  }) => Hazard | null;
 
   registerHazard: (data: Omit<Hazard, 'id' | 'status' | 'created_at'>) => void;
-  assignHazard: (hazardId: string, data: Pick<Hazard, 'responsible_dept' | 'responsible_person' | 'deadline'>) => void;
+  assignHazard: (hazardId: string, data: { responsible_dept: string; responsible_person: string; deadline: string; assigner_name: string }) => void;
   submitHazardRectify: (rectify: Omit<HazardRectify, 'id' | 'status' | 'submit_time'>) => void;
-  reviewHazard: (hazardId: string, passed: boolean, reviewer: string, reviewRemark?: string) => void;
+  reviewHazard: (hazardId: string, passed: boolean, reviewer: string, reviewer_id?: string, reviewRemark?: string) => void;
+  getRectifiesByHazardId: (hazardId: string) => HazardRectify[];
 
   updateDrillComment: (drillId: string, data: { summary: string; comment: string }) => void;
 
@@ -897,6 +910,54 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
+  updateSingleEquipmentCycle: (equipmentId, cycle) => {
+    const months = getCycleMonths(cycle);
+    set((state) => {
+      const targetEq = state.equipment.find(e => e.id === equipmentId);
+      if (!targetEq) return {};
+      
+      const oldCycle = targetEq.check_cycle;
+      const oldNextCheck = targetEq.next_check_date;
+      const newNextCheck = addMonths(targetEq.last_check_date, months);
+      
+      const newEquipment = state.equipment.map((eq) => {
+        if (eq.id === equipmentId) {
+          return { ...eq, check_cycle: cycle, next_check_date: newNextCheck };
+        }
+        return eq;
+      });
+      
+      const newLog = {
+        id: generateId('cl'),
+        target_type: 'equipment',
+        target_id: equipmentId,
+        field: 'check_cycle',
+        old_value: oldCycle,
+        new_value: cycle,
+        operator: '张建国',
+        operated_at: formatDateTime(new Date()),
+      };
+      const newLogs = [newLog, ...state.changeLogs];
+      
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: newEquipment,
+        equipments: newEquipment,
+        changeLogs: newLogs,
+      });
+      return {
+        equipment: newEquipment,
+        equipments: newEquipment,
+        changeLogs: newLogs,
+      };
+    });
+  },
+
   addChangeLog: (log) => {
     set((state) => {
       const newLogs = [
@@ -1059,6 +1120,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         building_name: building?.name || '未命名楼栋',
         point_name: point?.name || '未命名点位',
         reporter_name: reporter?.name || '系统',
+        source: data.source || HazardSourceEnum.MANUAL,
+        rectify_count: 0,
         created_at: formatDateTime(new Date()),
       };
       const newHazards = [newHazard, ...state.hazards];
@@ -1077,6 +1140,58 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
+  registerHazardFromInspection: (data) => {
+    let newHazard: Hazard | null = null;
+    set((state) => {
+      const point = state.inspectionPoints.find((p) => p.id === data.record.point_id);
+      const building = point ? state.buildings.find((b) => b.id === point.building_id) : null;
+      const title = data.hazard_title || `巡检发现：${data.record.point_name} 异常`;
+      const level = data.hazard_level || HazardLevelEnum.GENERAL;
+      
+      newHazard = {
+        id: generateId('hz'),
+        title,
+        description: data.record.remark || '巡检时发现该点位存在异常情况，需进一步整改。',
+        level,
+        status: HazardStatusEnum.REGISTERED,
+        building_id: point?.building_id || '',
+        building_name: building?.name || '',
+        point_id: data.record.point_id,
+        point_name: data.record.point_name,
+        reporter_id: data.reporter_id,
+        reporter_name: data.reporter_name,
+        photos: data.record.photos || [],
+        responsible_dept: '',
+        responsible_person: '',
+        deadline: '',
+        created_at: formatDateTime(new Date()),
+        source: HazardSourceEnum.INSPECTION,
+        source_task_id: data.task_id,
+        source_task_title: data.task_title,
+        source_record_id: '',
+        rectify_count: 0,
+      };
+      
+      const newHazards = [newHazard, ...state.hazards];
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: newHazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { hazards: newHazards };
+    });
+    return newHazard;
+  },
+
+  getRectifiesByHazardId: (hazardId) =>
+    get().hazardRectifies.filter((r) => r.hazard_id === hazardId),
+
   assignHazard: (hazardId, data) => {
     set((state) => {
       const newHazards = state.hazards.map((h) =>
@@ -1087,6 +1202,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
               responsible_dept: data.responsible_dept,
               responsible_person: data.responsible_person,
               deadline: data.deadline,
+              assigned_at: formatDateTime(new Date()),
+              assigned_by: data.assigner_name,
             }
           : h
       );
@@ -1114,9 +1231,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
         submit_time: formatDateTime(new Date()),
       };
       const newRectifies = [newRectify, ...state.hazardRectifies];
+      const currentCount = state.hazardRectifies.filter(r => r.hazard_id === rectify.hazard_id).length;
       const newHazards = state.hazards.map((h) =>
         h.id === rectify.hazard_id
-          ? { ...h, status: HazardStatusEnum.PENDING_REVIEW }
+          ? { 
+              ...h, 
+              status: HazardStatusEnum.PENDING_REVIEW,
+              latest_submit_at: formatDateTime(new Date()),
+              rectify_count: currentCount + 1,
+            }
           : h
       );
       doPersist({
@@ -1137,10 +1260,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
-  reviewHazard: (hazardId, passed, reviewer, reviewRemark) => {
+  reviewHazard: (hazardId, passed, reviewer, reviewer_id, reviewRemark) => {
     set((state) => {
       let newHazards = state.hazards;
       let newRectifies = state.hazardRectifies;
+      const now = formatDateTime(new Date());
 
       if (passed) {
         newHazards = state.hazards.map((h) =>
@@ -1148,7 +1272,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
             ? {
                 ...h,
                 status: HazardStatusEnum.CLOSED,
-                closed_at: formatDateTime(new Date()),
+                closed_at: now,
+                latest_review_at: now,
+                review_remark: reviewRemark || h.review_remark,
               }
             : h
         );
@@ -1157,16 +1283,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
             ? {
                 ...r,
                 status: 'passed',
-                review_time: formatDateTime(new Date()),
+                review_time: now,
                 reviewer,
-                remark: reviewRemark || r.remark,
+                reviewer_id,
+                review_remark: reviewRemark || r.review_remark,
               }
             : r
         );
       } else {
         newHazards = state.hazards.map((h) =>
           h.id === hazardId
-            ? { ...h, status: HazardStatusEnum.RECTIFYING }
+            ? { 
+                ...h, 
+                status: HazardStatusEnum.RECTIFYING,
+                latest_review_at: now,
+                review_remark: reviewRemark || h.review_remark,
+              }
             : h
         );
         newRectifies = state.hazardRectifies.map((r) =>
@@ -1174,9 +1306,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
             ? {
                 ...r,
                 status: 'rejected',
-                review_time: formatDateTime(new Date()),
+                review_time: now,
                 reviewer,
-                remark: reviewRemark || r.remark,
+                reviewer_id,
+                review_remark: reviewRemark || r.review_remark,
               }
             : r
         );

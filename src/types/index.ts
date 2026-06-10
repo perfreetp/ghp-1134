@@ -146,6 +146,11 @@ export interface InspectionRecord {
   inspect_time: string;
 }
 
+export enum HazardSource {
+  MANUAL = 'manual',
+  INSPECTION = 'inspection',
+}
+
 export interface Hazard {
   id: string;
   title: string;
@@ -164,6 +169,16 @@ export interface Hazard {
   deadline: string;
   created_at: string;
   closed_at?: string;
+  source?: HazardSource;
+  source_task_id?: string;
+  source_task_title?: string;
+  source_record_id?: string;
+  assigned_at?: string;
+  assigned_by?: string;
+  latest_submit_at?: string;
+  latest_review_at?: string;
+  review_remark?: string;
+  rectify_count?: number;
 }
 
 export interface HazardRectify {
@@ -174,8 +189,12 @@ export interface HazardRectify {
   remark?: string;
   status: 'submitted' | 'passed' | 'rejected';
   submit_time: string;
+  submitter: string;
+  submitter_id?: string;
   review_time?: string;
   reviewer?: string;
+  reviewer_id?: string;
+  review_remark?: string;
 }
 
 export interface Drill {

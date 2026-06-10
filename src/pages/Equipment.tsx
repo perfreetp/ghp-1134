@@ -17,6 +17,9 @@ import {
   Ban,
   Save,
   Info,
+  RefreshCw,
+  History,
+  ChevronRight,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import {
@@ -27,7 +30,7 @@ import {
   CheckCycle,
   CheckCycleLabels,
 } from '@/types';
-import type { Equipment, EquipmentMaintenance } from '@/types';
+import type { Equipment, EquipmentMaintenance, ChangeLog } from '@/types';
 import { cn } from '@/lib/utils';
 
 const equipmentCategoryList = [
@@ -73,6 +76,8 @@ export default function Equipment() {
     getMaintenancesByEquipmentId,
     getBuildingById,
     updateEquipmentCheckCycle,
+    updateSingleEquipmentCycle,
+    changeLogs,
   } = useAppStore();
 
   const [categoryFilter, setCategoryFilter] = useState<EquipmentCategory | 'all'>('all');
@@ -81,6 +86,9 @@ export default function Equipment() {
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState<Equipment | null>(null);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState<Equipment | null>(null);
+  const [showSingleCycleModal, setShowSingleCycleModal] = useState<Equipment | null>(null);
+  const [singleCycleValue, setSingleCycleValue] = useState<CheckCycle>(CheckCycle.QUARTERLY);
+  const [detailTab, setDetailTab] = useState<'info' | 'history'>('info');
   const [cycleSettings, setCycleSettings] = useState<Record<string, CheckCycle>>(() => {
     const settings: Record<string, CheckCycle> = {};
     equipmentCategoryList.forEach((cat) => {
@@ -120,6 +128,35 @@ export default function Equipment() {
   const maintenanceRecords = showMaintenanceModal
     ? getMaintenancesByEquipmentId(showMaintenanceModal.id)
     : [];
+
+  const equipmentChangeLogs = showDetailModal
+    ? changeLogs
+        .filter(
+          (log) =>
+            log.target_type === 'equipment' && log.target_id === showDetailModal.id
+        )
+        .sort((a, b) => b.operated_at.localeCompare(a.operated_at))
+    : [];
+
+  const handleOpenSingleCycleModal = (equipment: Equipment) => {
+    setShowSingleCycleModal(equipment);
+    setSingleCycleValue(equipment.check_cycle);
+  };
+
+  const handleSaveSingleCycle = () => {
+    if (showSingleCycleModal) {
+      updateSingleEquipmentCycle(showSingleCycleModal.id, singleCycleValue);
+      setShowSingleCycleModal(null);
+      showToast('检查周期已更新');
+    }
+  };
+
+  const handleDetailCycleChange = (cycle: CheckCycle) => {
+    if (showDetailModal) {
+      updateSingleEquipmentCycle(showDetailModal.id, cycle);
+      showToast('检查周期已更新');
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -301,6 +338,13 @@ export default function Equipment() {
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
+                            onClick={() => handleOpenSingleCycleModal(eq)}
+                            className="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                            title="调整周期"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => setShowMaintenanceModal(eq)}
                             className="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                             title="维护记录"
@@ -402,13 +446,104 @@ export default function Equipment() {
         </div>
       )}
 
+      {showSingleCycleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowSingleCycleModal(null)}
+          />
+          <div className="relative bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl mx-4">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">调整检查周期</h2>
+                <p className="text-sm text-gray-500 mt-1">单台设备周期调整</p>
+              </div>
+              <button
+                onClick={() => setShowSingleCycleModal(null)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="p-4 bg-gray-50 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">设备名称</span>
+                  <span className="text-sm font-medium text-gray-900">{showSingleCycleModal.name}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">设备编号</span>
+                  <span className="text-sm font-mono text-gray-600">{showSingleCycleModal.code}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">当前周期</span>
+                  <span className="text-sm font-medium text-indigo-600">
+                    {CheckCycleLabels[showSingleCycleModal.check_cycle]}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">上次检查</span>
+                  <span className="text-sm text-gray-700">{showSingleCycleModal.last_check_date}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  选择新周期
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(CheckCycle).map((cycle) => (
+                    <button
+                      key={cycle}
+                      onClick={() => setSingleCycleValue(cycle)}
+                      className={cn(
+                        'px-4 py-3 rounded-xl text-sm font-medium transition-all border',
+                        singleCycleValue === cycle
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50'
+                      )}
+                    >
+                      {CheckCycleLabels[cycle]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2 p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  修改检查周期后，将根据上次检查日期自动计算新的下次检查时间。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-100 bg-gray-50/50">
+              <button
+                onClick={() => setShowSingleCycleModal(null)}
+                className="px-5 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors bg-white"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveSingleCycle}
+                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                确认修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDetailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowDetailModal(null)}
           />
-          <div className="relative bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl mx-4">
+          <div className="relative bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl mx-4 flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">
@@ -424,44 +559,118 @@ export default function Equipment() {
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
-              <div className="flex items-center gap-3">
-                <span
+            <div className="border-b border-gray-100">
+              <div className="flex">
+                <button
+                  onClick={() => setDetailTab('info')}
                   className={cn(
-                    'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border',
-                    statusStyles[showDetailModal.status]
+                    'flex-1 px-6 py-3 text-sm font-medium transition-colors relative',
+                    detailTab === 'info'
+                      ? 'text-indigo-600'
+                      : 'text-gray-500 hover:text-gray-700'
                   )}
                 >
-                  {statusIcons[showDetailModal.status]}
-                  {EquipmentStatusLabels[showDetailModal.status]}
-                </span>
-                <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium border border-indigo-100">
-                  {EquipmentCategoryLabels[showDetailModal.category]}
-                </span>
+                  设备信息
+                  {detailTab === 'info' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setDetailTab('history')}
+                  className={cn(
+                    'flex-1 px-6 py-3 text-sm font-medium transition-colors relative flex items-center justify-center gap-2',
+                    detailTab === 'history'
+                      ? 'text-indigo-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  )}
+                >
+                  <History className="w-4 h-4" />
+                  变更历史
+                  {detailTab === 'history' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+                  )}
+                </button>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-5 pt-2">
-                <DetailItem label="设备型号" value={showDetailModal.model} />
-                <DetailItem label="安装日期" value={showDetailModal.install_date} />
-                <DetailItem label="所属建筑" value={getBuildingById(showDetailModal.building_id)?.name || '-'} />
-                <DetailItem label="检查周期" value={CheckCycleLabels[showDetailModal.check_cycle]} />
-                <DetailItem label="上次检查" value={showDetailModal.last_check_date} />
-                <DetailItem label="下次检查">
-                  <span
-                    className={cn(
-                      'text-sm font-medium',
-                      isOverdue(showDetailModal.next_check_date)
-                        ? 'text-red-600 font-bold'
-                        : 'text-gray-900'
-                    )}
-                  >
-                    {showDetailModal.next_check_date}
-                    {isOverdue(showDetailModal.next_check_date) && (
-                      <span className="ml-1 text-xs">(已逾期)</span>
-                    )}
-                  </span>
-                </DetailItem>
-              </div>
+            <div className="flex-1 overflow-y-auto">
+              {detailTab === 'info' ? (
+                <div className="p-6 space-y-5">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border',
+                        statusStyles[showDetailModal.status]
+                      )}
+                    >
+                      {statusIcons[showDetailModal.status]}
+                      {EquipmentStatusLabels[showDetailModal.status]}
+                    </span>
+                    <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium border border-indigo-100">
+                      {EquipmentCategoryLabels[showDetailModal.category]}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-5 pt-2">
+                    <DetailItem label="设备型号" value={showDetailModal.model} />
+                    <DetailItem label="安装日期" value={showDetailModal.install_date} />
+                    <DetailItem label="所属建筑" value={getBuildingById(showDetailModal.building_id)?.name || '-'} />
+                    <DetailItem label="上次检查" value={showDetailModal.last_check_date} />
+                  </div>
+
+                  <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">检查周期</div>
+                        <div className="text-lg font-bold text-indigo-700">
+                          {CheckCycleLabels[showDetailModal.check_cycle]}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleOpenSingleCycleModal(showDetailModal)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-white text-indigo-600 rounded-lg text-sm font-medium hover:bg-indigo-50 transition-colors border border-indigo-200"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        调整周期
+                      </button>
+                    </div>
+                    <div className="pt-3 border-t border-indigo-100">
+                      <div className="text-xs text-gray-500 mb-1.5">下次检查日期</div>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-indigo-500" />
+                        <span
+                          className={cn(
+                            'text-base font-semibold',
+                            isOverdue(showDetailModal.next_check_date)
+                              ? 'text-red-600'
+                              : 'text-gray-900'
+                          )}
+                        >
+                          {showDetailModal.next_check_date}
+                          {isOverdue(showDetailModal.next_check_date) && (
+                            <span className="ml-1 text-xs font-medium">(已逾期)</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6">
+                  {equipmentChangeLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16">
+                      <History className="w-14 h-14 text-gray-300 mb-4" />
+                      <p className="text-gray-500">暂无变更记录</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {equipmentChangeLogs.map((log) => (
+                        <ChangeLogCard key={log.id} log={log} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end p-6 border-t border-gray-100 bg-gray-50/50">
@@ -658,6 +867,56 @@ function MaintenanceCard({ record }: { record: EquipmentMaintenance }) {
       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-50 text-xs text-gray-400">
         <Check className="w-3.5 h-3.5" />
         操作人：{record.operator}
+      </div>
+    </div>
+  );
+}
+
+function ChangeLogCard({ log }: { log: ChangeLog }) {
+  const fieldLabels: Record<string, string> = {
+    check_cycle: '检查周期',
+    status: '设备状态',
+    name: '设备名称',
+    model: '设备型号',
+  };
+
+  const getValueLabel = (field: string, value: string) => {
+    if (field === 'check_cycle') {
+      return CheckCycleLabels[value as CheckCycle] || value;
+    }
+    if (field === 'status') {
+      return EquipmentStatusLabels[value as EquipmentStatus] || value;
+    }
+    return value;
+  };
+
+  return (
+    <div className="border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors bg-white">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="px-2.5 py-1 text-xs font-medium rounded-lg border bg-indigo-50 text-indigo-700 border-indigo-200">
+            {fieldLabels[log.field] || log.field}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-gray-400">
+          <Clock className="w-3.5 h-3.5" />
+          {log.operated_at}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-gray-500">原值：</span>
+        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-medium">
+          {getValueLabel(log.field, log.old_value)}
+        </span>
+        <ChevronRight className="w-4 h-4 text-gray-300" />
+        <span className="text-gray-500">新值：</span>
+        <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+          {getValueLabel(log.field, log.new_value)}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-50 text-xs text-gray-400">
+        <Check className="w-3.5 h-3.5" />
+        操作人：{log.operator}
       </div>
     </div>
   );

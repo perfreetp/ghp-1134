@@ -13,6 +13,14 @@ import {
   ImagePlus,
   Save,
   Clock,
+  Play,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Camera,
+  FileText,
+  UserCheck,
+  Hash,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import type { InspectionTask, InspectionPoint, InspectionRecord } from '@/types';
@@ -22,6 +30,8 @@ import {
   CheckCycle,
   CheckCycleLabels,
   UserRole,
+  HazardLevel,
+  HazardLevelLabels,
 } from '@/types';
 import {
   cn,
@@ -69,9 +79,15 @@ function TaskCard({ task, onClick }: { task: InspectionTask; onClick?: () => voi
         <span className="truncate">{task.building_name}</span>
       </div>
 
-      <div className="flex items-center gap-1.5 text-sm text-slate-600 mb-3">
+      <div className="flex items-center gap-1.5 text-sm text-slate-600 mb-2">
         <MapPin size={14} className="shrink-0 text-slate-400" />
         <span>{task.point_ids.length} 个点位</span>
+      </div>
+
+      <div className="mb-3">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
+          {CheckCycleLabels[task.cycle]}巡检
+        </span>
       </div>
 
       <div className="mb-3">
@@ -109,7 +125,7 @@ function TaskCard({ task, onClick }: { task: InspectionTask; onClick?: () => voi
         <div className="flex items-center gap-1 text-xs">
           <Calendar size={12} className={cn(showOverdueBorder ? 'text-red-500' : 'text-slate-400')} />
           <span className={cn(showOverdueBorder ? 'text-red-600 font-medium' : 'text-slate-500')}>
-            {formatDate(task.end_date)}
+            {formatDate(task.start_date, 'MM-DD')} ~ {formatDate(task.end_date, 'MM-DD')}
           </span>
         </div>
       </div>
@@ -404,6 +420,148 @@ function CreateTaskModal({
 interface PointEditState {
   remark: string;
   photos: string[];
+  status: 'normal' | 'abnormal';
+}
+
+interface RegisterHazardData {
+  point: InspectionPoint;
+  record: Omit<InspectionRecord, 'id'>;
+}
+
+function RegisterHazardModal({
+  open,
+  data,
+  task,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  data: RegisterHazardData | null;
+  task: InspectionTask | null;
+  onClose: () => void;
+  onConfirm: (level: HazardLevel, title: string) => void;
+}) {
+  const [hazardTitle, setHazardTitle] = useState('');
+  const [hazardLevel, setHazardLevel] = useState<HazardLevel>(HazardLevel.GENERAL);
+
+  if (!open || !data || !task) return null;
+
+  const defaultTitle = `巡检发现：${data.point.name} 异常`;
+
+  const handleOpen = () => {
+    setHazardTitle(defaultTitle);
+    setHazardLevel(HazardLevel.GENERAL);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <h3 className="text-base font-semibold text-slate-800">登记隐患</h3>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              隐患标题
+            </label>
+            <input
+              type="text"
+              value={hazardTitle || defaultTitle}
+              onChange={(e) => setHazardTitle(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              隐患等级
+            </label>
+            <div className="flex gap-2">
+              {([
+                { value: HazardLevel.MINOR, label: '轻微', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+                { value: HazardLevel.GENERAL, label: '一般', color: 'bg-amber-100 text-amber-700 border-amber-300' },
+                { value: HazardLevel.MAJOR, label: '较大', color: 'bg-orange-100 text-orange-700 border-orange-300' },
+                { value: HazardLevel.CRITICAL, label: '重大', color: 'bg-red-100 text-red-700 border-red-300' },
+              ] as const).map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setHazardLevel(item.value)}
+                  className={cn(
+                    'flex-1 py-2 text-xs font-medium rounded-lg border transition-all',
+                    hazardLevel === item.value
+                      ? item.color + ' border-2'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              <Building2 size={14} className="text-slate-400" />
+              <span className="text-slate-600">{task.building_name}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <MapPin size={14} className="text-slate-400" />
+              <span className="text-slate-600">{data.point.name}</span>
+            </div>
+            {data.record.remark && (
+              <div className="flex items-start gap-2 text-sm">
+                <FileText size={14} className="text-slate-400 mt-0.5" />
+                <span className="text-slate-600 line-clamp-2">{data.record.remark}</span>
+              </div>
+            )}
+            {data.record.photos && data.record.photos.length > 0 && (
+              <div className="flex gap-1.5 pt-1">
+                {data.record.photos.slice(0, 4).map((photo, idx) => (
+                  <img
+                    key={idx}
+                    src={photo}
+                    alt={`照片 ${idx + 1}`}
+                    className="w-12 h-12 rounded object-cover"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-500">
+            <AlertTriangle size={12} className="inline mr-1 text-amber-500" />
+            登记后可在隐患整改模块查看和处理
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200 bg-slate-50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={() => {
+              onConfirm(hazardLevel, hazardTitle || defaultTitle);
+              onClose();
+            }}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+          >
+            确认登记
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ExecuteModal({
@@ -420,10 +578,13 @@ function ExecuteModal({
     users,
     inspectionRecords,
     addInspectionRecord,
+    registerHazardFromInspection,
   } = useAppStore();
 
   const [expandedPointId, setExpandedPointId] = useState<string | null>(null);
   const [editStates, setEditStates] = useState<Record<string, PointEditState>>({});
+  const [registerHazardOpen, setRegisterHazardOpen] = useState(false);
+  const [registerHazardData, setRegisterHazardData] = useState<RegisterHazardData | null>(null);
 
   const taskRecords: InspectionRecord[] = useMemo(() => {
     if (!task) return [];
@@ -446,7 +607,7 @@ function ExecuteModal({
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   const getEditState = (pointId: string): PointEditState => {
-    return editStates[pointId] || { remark: '', photos: [] };
+    return editStates[pointId] || { remark: '', photos: [], status: 'normal' };
   };
 
   const setEditState = (pointId: string, updates: Partial<PointEditState>) => {
@@ -481,7 +642,7 @@ function ExecuteModal({
       point_name: point.name,
       inspector_id: task.assignee_id,
       inspector_name: inspector?.name || task.assignee_name,
-      status: 'normal',
+      status: editState.status,
       remark: editState.remark || undefined,
       photos: editState.photos.length > 0 ? editState.photos : undefined,
       inspect_time: formatDateTime(new Date()),
@@ -493,6 +654,45 @@ function ExecuteModal({
       return next;
     });
     setExpandedPointId(null);
+  };
+
+  const handleOpenRegisterHazard = (point: InspectionPoint) => {
+    if (!task) return;
+    const editState = getEditState(point.id);
+    const inspector = users.find((u) => u.id === task.assignee_id);
+
+    const record: Omit<InspectionRecord, 'id'> = {
+      task_id: task.id,
+      point_id: point.id,
+      point_name: point.name,
+      inspector_id: task.assignee_id,
+      inspector_name: inspector?.name || task.assignee_name,
+      status: 'abnormal',
+      remark: editState.remark || undefined,
+      photos: editState.photos.length > 0 ? editState.photos : undefined,
+      inspect_time: formatDateTime(new Date()),
+    };
+
+    setRegisterHazardData({ point, record });
+    setRegisterHazardOpen(true);
+  };
+
+  const handleConfirmRegisterHazard = (level: HazardLevel, title: string) => {
+    if (!task || !registerHazardData) return;
+
+    registerHazardFromInspection({
+      record: registerHazardData.record,
+      task_id: task.id,
+      task_title: task.title,
+      hazard_level: level,
+      hazard_title: title,
+      reporter_id: task.assignee_id,
+      reporter_name: task.assignee_name,
+    });
+
+    handleSavePoint(registerHazardData.point);
+
+    setRegisterHazardData(null);
   };
 
   const handleToggleExpand = (pointId: string) => {
@@ -572,7 +772,9 @@ function ExecuteModal({
                   className={cn(
                     'border rounded-xl overflow-hidden transition-all',
                     isCompleted
-                      ? 'border-emerald-200 bg-emerald-50/40'
+                      ? record?.status === 'abnormal'
+                        ? 'border-red-200 bg-red-50/40'
+                        : 'border-emerald-200 bg-emerald-50/40'
                       : isExpanded
                       ? 'border-sky-300 shadow-md border-2'
                       : 'border-slate-200 bg-white hover:border-slate-300'
@@ -589,26 +791,45 @@ function ExecuteModal({
                       className={cn(
                         'w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all',
                         isCompleted
-                          ? 'bg-emerald-500 border-emerald-500'
+                          ? record?.status === 'abnormal'
+                            ? 'bg-red-500 border-red-500'
+                            : 'bg-emerald-500 border-emerald-500'
                           : 'border-slate-300 bg-white'
                       )}
                     >
-                      {isCompleted && <Check size={14} className="text-white" strokeWidth={3} />}
+                      {isCompleted && (
+                        record?.status === 'abnormal' ? (
+                          <XCircle size={14} className="text-white" strokeWidth={3} />
+                        ) : (
+                          <Check size={14} className="text-white" strokeWidth={3} />
+                        )
+                      )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4
                           className={cn(
                             'font-medium text-base',
-                            isCompleted ? 'text-emerald-700' : 'text-slate-800'
+                            isCompleted
+                              ? record?.status === 'abnormal'
+                                ? 'text-red-700'
+                                : 'text-emerald-700'
+                              : 'text-slate-800'
                           )}
                         >
                           {point.name}
                         </h4>
                         {isCompleted && (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
-                            已完成
+                          <span
+                            className={cn(
+                              'text-xs px-2 py-0.5 rounded-full font-medium',
+                              record?.status === 'abnormal'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            )}
+                          >
+                            {record?.status === 'abnormal' ? '异常' : '已完成'}
                           </span>
                         )}
                       </div>
@@ -640,7 +861,10 @@ function ExecuteModal({
                   {isCompleted && record && (
                     <div className="px-4 pb-4 pt-0 space-y-2">
                       {record.remark && (
-                        <div className="bg-white rounded-lg p-3 border border-emerald-100">
+                        <div className={cn(
+                          'bg-white rounded-lg p-3 border',
+                          record.status === 'abnormal' ? 'border-red-100' : 'border-emerald-100'
+                        )}>
                           <p className="text-xs text-slate-500 mb-1">巡检备注</p>
                           <p className="text-sm text-slate-700">{record.remark}</p>
                         </div>
@@ -654,7 +878,10 @@ function ExecuteModal({
                                 key={idx}
                                 src={photo}
                                 alt={`巡检照片 ${idx + 1}`}
-                                className="w-20 h-20 rounded-lg object-cover border border-emerald-100"
+                                className={cn(
+                                  'w-20 h-20 rounded-lg object-cover border',
+                                  record.status === 'abnormal' ? 'border-red-100' : 'border-emerald-100'
+                                )}
                               />
                             ))}
                           </div>
@@ -666,6 +893,62 @@ function ExecuteModal({
                   {isExpanded && !isCompleted && (
                     <div className="px-4 pb-4 pt-0 space-y-3 border-t border-slate-100 mt-0">
                       <div className="pt-3">
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                          巡检状态
+                        </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditState(point.id, { status: 'normal' })}
+                            className={cn(
+                              'flex-1 py-2 text-sm font-medium rounded-lg border transition-all flex items-center justify-center gap-1.5',
+                              editState.status === 'normal'
+                                ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            )}
+                          >
+                            <CheckCircle2 size={16} />
+                            正常
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditState(point.id, { status: 'abnormal' })}
+                            className={cn(
+                              'flex-1 py-2 text-sm font-medium rounded-lg border transition-all flex items-center justify-center gap-1.5',
+                              editState.status === 'abnormal'
+                                ? 'bg-red-100 text-red-700 border-red-300'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            )}
+                          >
+                            <XCircle size={16} />
+                            异常
+                          </button>
+                        </div>
+                      </div>
+
+                      {editState.status === 'abnormal' && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-red-800">发现异常情况</p>
+                              <p className="text-xs text-red-600 mt-0.5">
+                                请详细描述异常情况，建议同时登记隐患以便后续整改
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRegisterHazard(point)}
+                            className="mt-3 w-full py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <AlertTriangle size={16} />
+                            登记隐患
+                          </button>
+                        </div>
+                      )}
+
+                      <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">
                           巡检备注
                         </label>
@@ -731,7 +1014,12 @@ function ExecuteModal({
                         <button
                           type="button"
                           onClick={() => handleSavePoint(point)}
-                          className="px-4 py-1.5 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors flex items-center gap-1.5"
+                          className={cn(
+                            'px-4 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5',
+                            editState.status === 'abnormal'
+                              ? 'text-white bg-red-500 hover:bg-red-600'
+                              : 'text-white bg-sky-500 hover:bg-sky-600'
+                          )}
                         >
                           <Save size={14} />
                           保存
@@ -759,6 +1047,17 @@ function ExecuteModal({
           </button>
         </div>
       </div>
+
+      <RegisterHazardModal
+        open={registerHazardOpen}
+        data={registerHazardData}
+        task={task}
+        onClose={() => {
+          setRegisterHazardOpen(false);
+          setRegisterHazardData(null);
+        }}
+        onConfirm={handleConfirmRegisterHazard}
+      />
     </div>
   );
 }
@@ -841,13 +1140,16 @@ function ListView({
               执行人
             </th>
             <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+              周期
+            </th>
+            <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">
               状态
             </th>
             <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">
               进度
             </th>
             <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-              截止日期
+              时间范围
             </th>
           </tr>
         </thead>
@@ -884,6 +1186,11 @@ function ListView({
                   </div>
                 </td>
                 <td className="px-5 py-4">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
+                    {CheckCycleLabels[task.cycle]}
+                  </span>
+                </td>
+                <td className="px-5 py-4">
                   <span
                     className={cn(
                       'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
@@ -914,7 +1221,7 @@ function ListView({
                 </td>
                 <td className="px-5 py-4">
                   <span className={cn('text-sm', showOverdue ? 'text-red-600 font-medium' : 'text-slate-600')}>
-                    {formatDate(task.end_date)}
+                    {formatDate(task.start_date, 'MM-DD')} ~ {formatDate(task.end_date, 'MM-DD')}
                   </span>
                 </td>
               </tr>
@@ -923,6 +1230,300 @@ function ListView({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function TaskDetailSidebar({
+  open,
+  task,
+  onClose,
+  onExecute,
+}: {
+  open: boolean;
+  task: InspectionTask | null;
+  onClose: () => void;
+  onExecute: (task: InspectionTask) => void;
+}) {
+  const { inspectionPoints, inspectionRecords, users } = useAppStore();
+
+  const taskRecords: InspectionRecord[] = useMemo(() => {
+    if (!task) return [];
+    return inspectionRecords.filter((r) => r.task_id === task.id);
+  }, [task, inspectionRecords]);
+
+  const taskPoints: InspectionPoint[] = useMemo(() => {
+    if (!task) return [];
+    return task.point_ids
+      .map((pid) => inspectionPoints.find((p) => p.id === pid))
+      .filter(Boolean) as InspectionPoint[];
+  }, [task, inspectionPoints]);
+
+  const completedPointIds = useMemo(() => {
+    return new Set(taskRecords.map((r) => r.point_id));
+  }, [taskRecords]);
+
+  const abnormalCount = useMemo(() => {
+    return taskRecords.filter((r) => r.status === 'abnormal').length;
+  }, [taskRecords]);
+
+  const totalPhotos = useMemo(() => {
+    return taskRecords.reduce((sum, r) => sum + (r.photos?.length || 0), 0);
+  }, [taskRecords]);
+
+  const getPointStatus = (pointId: string): 'pending' | 'normal' | 'abnormal' => {
+    const record = taskRecords.find((r) => r.point_id === pointId);
+    if (!record) return 'pending';
+    return record.status;
+  };
+
+  const getPointRecord = (pointId: string): InspectionRecord | undefined => {
+    return taskRecords.find((r) => r.point_id === pointId);
+  };
+
+  if (!open || !task) return null;
+
+  const isCompleted = task.status === TaskStatus.COMPLETED;
+  const isPending = task.status === TaskStatus.PENDING;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="fixed right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl z-50 flex flex-col">
+        <div className="flex items-start justify-between px-6 py-5 border-b border-slate-200">
+          <div className="flex-1 pr-4">
+            <h3 className="text-lg font-semibold text-slate-800 mb-2">{task.title}</h3>
+            <span
+              className={cn(
+                'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                getStatusColor(task.status, 'bg'),
+                getStatusColor(task.status, 'text')
+              )}
+            >
+              {TaskStatusLabels[task.status]}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors shrink-0"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <FileText size={16} className="text-slate-400" />
+              基本信息
+            </h4>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Building2 size={16} className="text-slate-400 shrink-0" />
+                <span className="text-sm text-slate-600">{task.building_name}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <User size={16} className="text-slate-400 shrink-0" />
+                <div className="flex items-center gap-2">
+                  <div
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-medium',
+                      getAvatarColor(task.assignee_name)
+                    )}
+                  >
+                    {getInitials(task.assignee_name)}
+                  </div>
+                  <span className="text-sm text-slate-700">{task.assignee_name}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Hash size={16} className="text-slate-400 shrink-0" />
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">
+                  {CheckCycleLabels[task.cycle]}巡检
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Calendar size={16} className="text-slate-400 shrink-0" />
+                <span className="text-sm text-slate-600">
+                  {formatDate(task.start_date)} ~ {formatDate(task.end_date)}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <UserCheck size={16} className="text-slate-400 shrink-0" />
+                <span className="text-sm text-slate-600">
+                  创建人：{task.creator_name} · {formatDateTime(task.created_at)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <MapPin size={16} className="text-slate-400" />
+              点位明细
+            </h4>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-slate-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-slate-800">{taskPoints.length}</p>
+                <p className="text-xs text-slate-500 mt-1">总点位</p>
+              </div>
+              <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-emerald-600">{completedPointIds.size}</p>
+                <p className="text-xs text-slate-500 mt-1">已完成</p>
+              </div>
+              <div className="bg-red-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-red-600">{abnormalCount}</p>
+                <p className="text-xs text-slate-500 mt-1">异常</p>
+              </div>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {taskPoints.map((point) => {
+                const status = getPointStatus(point.id);
+                const record = getPointRecord(point.id);
+                return (
+                  <div
+                    key={point.id}
+                    className={cn(
+                      'p-3 rounded-lg border',
+                      status === 'normal'
+                        ? 'bg-emerald-50/50 border-emerald-200'
+                        : status === 'abnormal'
+                        ? 'bg-red-50/50 border-red-200'
+                        : 'bg-slate-50 border-slate-200'
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-slate-700">{point.name}</span>
+                      <span
+                        className={cn(
+                          'text-xs px-2 py-0.5 rounded-full font-medium',
+                          status === 'normal'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : status === 'abnormal'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-slate-200 text-slate-600'
+                        )}
+                      >
+                        {status === 'normal'
+                          ? '正常'
+                          : status === 'abnormal'
+                          ? '异常'
+                          : '未检'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <MapPin size={12} />
+                        {point.floor}
+                      </span>
+                      {record?.inspect_time && (
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} />
+                          {record.inspect_time}
+                        </span>
+                      )}
+                    </div>
+                    {status !== 'pending' && record?.remark && (
+                      <p className="text-xs text-slate-600 mt-2 line-clamp-2">
+                        备注：{record.remark}
+                      </p>
+                    )}
+                    {status !== 'pending' && record?.photos && record.photos.length > 0 && (
+                      <div className="flex gap-1.5 mt-2">
+                        {record.photos.slice(0, 3).map((photo, idx) => (
+                          <img
+                            key={idx}
+                            src={photo}
+                            alt={`照片 ${idx + 1}`}
+                            className="w-10 h-10 rounded object-cover"
+                          />
+                        ))}
+                        {record.photos.length > 3 && (
+                          <div className="w-10 h-10 rounded bg-slate-200 flex items-center justify-center text-xs text-slate-600">
+                            +{record.photos.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="px-6 py-5">
+            <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <Camera size={16} className="text-slate-400" />
+              执行记录与照片
+            </h4>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-500" />
+                <span className="text-sm text-slate-600">
+                  已检 <span className="font-medium text-slate-800">{completedPointIds.size}</span> 个
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Camera size={16} className="text-sky-500" />
+                <span className="text-sm text-slate-600">
+                  照片 <span className="font-medium text-slate-800">{totalPhotos}</span> 张
+                </span>
+              </div>
+            </div>
+            {taskRecords.length > 0 ? (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {taskRecords.slice(0, 5).map((record) => (
+                  <div key={record.id} className="p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-slate-700">
+                        {record.point_name}
+                      </span>
+                      <span
+                        className={cn(
+                          'text-xs px-2 py-0.5 rounded-full font-medium',
+                          record.status === 'normal'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-red-100 text-red-700'
+                        )}
+                      >
+                        {record.status === 'normal' ? '正常' : '异常'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {record.inspector_name} · {record.inspect_time}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-slate-400">
+                <Clock size={24} className="mx-auto mb-2" />
+                <p className="text-sm">暂无执行记录</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+          {isCompleted ? (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <CheckCircle2 size={20} className="text-emerald-500" />
+              <span className="text-sm font-medium text-emerald-700">任务已完成</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => onExecute(task)}
+              className="w-full py-2.5 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <Play size={16} />
+              {isPending ? '开始执行' : '继续执行'}
+            </button>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -937,6 +1538,7 @@ export default function Inspections() {
   const [filterBuilding, setFilterBuilding] = useState('');
   const [filterAssignee, setFilterAssignee] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<InspectionTask | null>(null);
   const [executeTask, setExecuteTask] = useState<InspectionTask | null>(null);
 
   const filteredTasks = useMemo(() => {
@@ -953,6 +1555,11 @@ export default function Inspections() {
   );
 
   const handleTaskClick = (task: InspectionTask) => {
+    setSelectedTask(task);
+  };
+
+  const handleExecuteTask = (task: InspectionTask) => {
+    setSelectedTask(null);
     setExecuteTask(task);
   };
 
@@ -1052,6 +1659,12 @@ export default function Inspections() {
       </div>
 
       <CreateTaskModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
+      <TaskDetailSidebar
+        open={!!selectedTask}
+        task={selectedTask}
+        onClose={() => setSelectedTask(null)}
+        onExecute={handleExecuteTask}
+      />
       <ExecuteModal
         open={!!executeTask}
         task={executeTask}
