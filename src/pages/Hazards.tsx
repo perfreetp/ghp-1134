@@ -66,6 +66,28 @@ const statusSteps: { key: HazardStatus; label: string; icon: typeof CircleDot }[
   { key: HazardStatus.CLOSED, label: '已关闭', icon: DoorOpen },
 ];
 
+function getDeptDisplay(dept: string): { text: string; isPlaceholder: boolean } {
+  if (!dept || dept.trim() === '') {
+    return { text: '待派单', isPlaceholder: true };
+  }
+  return { text: dept, isPlaceholder: false };
+}
+
+function getPersonDisplay(person: string): { text: string; isPlaceholder: boolean } {
+  if (!person || person.trim() === '') {
+    return { text: '待设置责任人', isPlaceholder: true };
+  }
+  return { text: person, isPlaceholder: false };
+}
+
+function getDeadlineDisplay(deadline: string): { text: string; isPlaceholder: boolean; isOverdue: boolean } {
+  if (!deadline || deadline.trim() === '') {
+    return { text: '待设置期限', isPlaceholder: true, isOverdue: false };
+  }
+  const overdue = isOverdue(deadline);
+  return { text: formatDate(deadline), isPlaceholder: false, isOverdue: overdue };
+}
+
 function getProgressByStatus(status: HazardStatus): number {
   const map: Record<HazardStatus, number> = {
     [HazardStatus.REGISTERED]: 10,
@@ -274,19 +296,25 @@ function HazardCard({
         </div>
 
         <div className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-1.5 text-slate-600">
-            <Building2 size={14} className="shrink-0 text-slate-400" />
-            <span>{hazard.responsible_dept || '待指定'}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-slate-600">
-            <UserCheck size={14} className="shrink-0 text-slate-400" />
-            <span>{hazard.responsible_person || '待指定'}</span>
+          <div className="flex items-center gap-1.5">
+            <Building2 size={14} className={cn('shrink-0', getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-400')} />
+            <span className={cn(getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-600')}>
+              {getDeptDisplay(hazard.responsible_dept).text}
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Calendar size={14} className={cn('shrink-0', overdue ? 'text-red-500' : 'text-slate-400')} />
-            <span className={cn(overdue ? 'text-red-600 font-medium' : 'text-slate-600')}>
-              {formatDate(hazard.deadline)}
-              {overdue && ' (已逾期)'}
+            <UserCheck size={14} className={cn('shrink-0', getPersonDisplay(hazard.responsible_person).isPlaceholder ? 'text-slate-400' : 'text-slate-400')} />
+            <span className={cn(getPersonDisplay(hazard.responsible_person).isPlaceholder ? 'text-slate-400' : 'text-slate-600')}>
+              {getPersonDisplay(hazard.responsible_person).text}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Calendar size={14} className={cn('shrink-0', getDeadlineDisplay(hazard.deadline).isOverdue ? 'text-red-500' : getDeadlineDisplay(hazard.deadline).isPlaceholder ? 'text-slate-400' : 'text-slate-400')} />
+            <span className={cn(
+              getDeadlineDisplay(hazard.deadline).isOverdue ? 'text-red-600 font-medium' : getDeadlineDisplay(hazard.deadline).isPlaceholder ? 'text-slate-400' : 'text-slate-600'
+            )}>
+              {getDeadlineDisplay(hazard.deadline).text}
+              {getDeadlineDisplay(hazard.deadline).isOverdue && ' (已逾期)'}
             </span>
           </div>
         </div>
@@ -848,7 +876,14 @@ function RectifyModal({
               位置：{hazard.building_name} · {hazard.point_name}
             </p>
             <p className="text-xs text-slate-500">
-              责任人：{hazard.responsible_person} · 整改期限：{formatDate(hazard.deadline)}
+              责任人：<span className={cn(getPersonDisplay(hazard.responsible_person).isPlaceholder ? 'text-slate-400' : '')}>{getPersonDisplay(hazard.responsible_person).text}</span>
+              {' · '}
+              整改期限：<span className={cn(
+                getDeadlineDisplay(hazard.deadline).isOverdue ? 'text-red-600' : getDeadlineDisplay(hazard.deadline).isPlaceholder ? 'text-slate-400' : ''
+              )}>
+                {getDeadlineDisplay(hazard.deadline).text}
+                {getDeadlineDisplay(hazard.deadline).isOverdue && ' (已逾期)'}
+              </span>
             </p>
           </div>
 
@@ -915,60 +950,237 @@ function RectifyModal({
   );
 }
 
-function RejectModal({
+function ReviewModal({
   hazard,
+  rectifies,
   open,
   onClose,
   onConfirm,
 }: {
   hazard: Hazard | null;
+  rectifies: HazardRectify[];
   open: boolean;
   onClose: () => void;
-  onConfirm: (remark: string) => void;
+  onConfirm: (passed: boolean, reviewRemark: string) => void;
 }) {
-  const [remark, setRemark] = useState('');
+  const { users } = useAppStore();
+  const [reviewType, setReviewType] = useState<'pass' | 'reject' | null>(null);
+  const [reviewRemark, setReviewRemark] = useState('');
+
+  const latestRectify = useMemo(() => {
+    const submitted = rectifies.filter((r) => r.status === 'submitted');
+    if (submitted.length === 0) return null;
+    return submitted.sort((a, b) => new Date(b.submit_time).getTime() - new Date(a.submit_time).getTime())[0];
+  }, [rectifies]);
+
+  const resetForm = () => {
+    setReviewType(null);
+    setReviewRemark('');
+  };
 
   const handleSubmit = () => {
-    onConfirm(remark);
-    setRemark('');
+    if (!reviewType || !reviewRemark.trim()) return;
+    onConfirm(reviewType === 'pass', reviewRemark.trim());
+    resetForm();
   };
+
+  const handleCancel = () => {
+    resetForm();
+    onClose();
+  };
+
+  const confirmText = reviewType === 'pass' ? '确认通过' : reviewType === 'reject' ? '确认驳回' : '确认复查';
+  const confirmVariant = reviewType === 'pass' ? 'success' : reviewType === 'reject' ? 'danger' : 'primary';
+  const canSubmit = reviewType !== null && reviewRemark.trim().length > 0;
 
   if (!open || !hazard) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
-        <ModalHeader title="驳回整改" onClose={onClose} />
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-hidden flex flex-col">
+        <ModalHeader title="隐患复查" onClose={handleCancel} />
 
-        <div className="p-6 space-y-5">
-          <div className="bg-red-50 rounded-lg p-4 border border-red-100">
-            <div className="flex items-center gap-2 text-red-700 mb-1">
-              <AlertTriangle size={16} />
-              <span className="font-medium">即将驳回此隐患的整改申请</span>
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
+              <h4 className="font-semibold text-slate-800">{hazard.title}</h4>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200">
+                待复查
+              </span>
             </div>
-            <p className="text-xs text-red-600">{hazard.title}</p>
+            <p className="text-xs text-slate-500">
+              位置：{hazard.building_name} · {hazard.point_name}
+            </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              驳回原因 <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              value={remark}
-              onChange={(e) => setRemark(e.target.value)}
-              rows={4}
-              placeholder="请详细说明驳回原因，便于整改方重新处理..."
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all resize-none"
-            />
+            <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+              <Info size={15} className="text-sky-500" />
+              基本信息
+            </h4>
+            <div className="grid grid-cols-2 gap-4 bg-white border border-slate-200 rounded-xl p-5">
+              <div>
+                <p className="text-xs text-slate-500 mb-1">隐患等级</p>
+                <LevelBadge level={hazard.level} size="sm" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1">整改次数</p>
+                <p className="text-sm font-medium text-slate-800">{hazard.rectify_count || 0} 次</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1">责任部门</p>
+                <p className={cn('text-sm font-medium', getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
+                  {getDeptDisplay(hazard.responsible_dept).text}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1">责任人</p>
+                <div className="flex items-center gap-2">
+                  <div
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center text-white text-xs',
+                      getAvatarColor(getPersonDisplay(hazard.responsible_person).text)
+                    )}
+                  >
+                    {getInitials(getPersonDisplay(hazard.responsible_person).text)}
+                  </div>
+                  <span className={cn('text-sm font-medium', getPersonDisplay(hazard.responsible_person).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
+                    {getPersonDisplay(hazard.responsible_person).text}
+                  </span>
+                </div>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-slate-500 mb-1">整改期限</p>
+                <p
+                  className={cn(
+                    'text-sm font-medium',
+                    getDeadlineDisplay(hazard.deadline).isOverdue ? 'text-red-600' : getDeadlineDisplay(hazard.deadline).isPlaceholder ? 'text-slate-400' : 'text-slate-800'
+                  )}
+                >
+                  {getDeadlineDisplay(hazard.deadline).text}
+                  {getDeadlineDisplay(hazard.deadline).isOverdue && ' (已逾期)'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {latestRectify && (
+            <div>
+              <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                <FileCheck size={15} className="text-amber-500" />
+                整改内容
+              </h4>
+              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1.5">整改措施</p>
+                  <p className="text-sm text-slate-700">{latestRectify.action}</p>
+                </div>
+
+                {latestRectify.photos && latestRectify.photos.length > 0 && (
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1.5">整改照片</p>
+                    <div className="flex flex-wrap gap-2">
+                      {latestRectify.photos.map((photo, idx) => (
+                        <div key={idx} className="w-20 h-20 rounded-lg overflow-hidden border border-slate-200">
+                          <img src={photo} alt={`整改照片 ${idx + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {latestRectify.remark && (
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1.5">整改备注</p>
+                    <div className="bg-slate-50 rounded-lg px-3 py-2">
+                      <p className="text-sm text-slate-600">{latestRectify.remark}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-4 text-xs text-slate-500">
+                    <div className="flex items-center gap-1.5">
+                      <User size={12} className="text-slate-400" />
+                      <span>提交人：<span className="font-medium text-slate-700">{latestRectify.submitter}</span></span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Clock size={12} className="text-slate-400" />
+                      <span>提交时间：<span className="font-medium text-slate-700">{formatDateTime(latestRectify.submit_time)}</span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+              <SearchCheck size={15} className="text-sky-500" />
+              复查操作
+            </h4>
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setReviewType('pass')}
+                  className={cn(
+                    'flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all border-2',
+                    reviewType === 'pass'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-100'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
+                  )}
+                >
+                  <Check size={18} />
+                  通过
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReviewType('reject')}
+                  className={cn(
+                    'flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all border-2',
+                    reviewType === 'reject'
+                      ? 'bg-red-50 text-red-700 border-red-300 ring-2 ring-red-100'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-red-300 hover:text-red-600'
+                  )}
+                >
+                  <X size={18} />
+                  驳回
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  复查意见 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={reviewRemark}
+                  onChange={(e) => setReviewRemark(e.target.value)}
+                  rows={4}
+                  placeholder="请填写复查意见，无论通过或驳回都需要填写..."
+                  className={cn(
+                    'w-full px-3.5 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 transition-all resize-none',
+                    reviewType === 'pass'
+                      ? 'border-slate-300 focus:ring-emerald-500 focus:border-emerald-500'
+                      : reviewType === 'reject'
+                      ? 'border-slate-300 focus:ring-red-500 focus:border-red-500'
+                      : 'border-slate-300 focus:ring-sky-500 focus:border-sky-500'
+                  )}
+                />
+                <p className="text-xs text-slate-400 mt-1.5">
+                  <span className="text-amber-500">提示：</span>无论通过或驳回，请填写复查意见
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
         <ModalFooter
-          onCancel={onClose}
+          onCancel={handleCancel}
           onConfirm={handleSubmit}
-          confirmText="确认驳回"
-          confirmDisabled={!remark.trim()}
-          confirmVariant="danger"
+          confirmText={confirmText}
+          confirmDisabled={!canSubmit}
+          confirmVariant={confirmVariant as 'primary' | 'success' | 'danger'}
         />
       </div>
     </div>
@@ -1243,16 +1455,18 @@ function DetailModal({
                 <p
                   className={cn(
                     'text-sm font-medium',
-                    overdue ? 'text-red-600' : 'text-slate-800'
+                    getDeadlineDisplay(hazard.deadline).isOverdue ? 'text-red-600' : getDeadlineDisplay(hazard.deadline).isPlaceholder ? 'text-slate-400' : 'text-slate-800'
                   )}
                 >
-                  {formatDate(hazard.deadline)}
-                  {overdue && ' (已逾期)'}
+                  {getDeadlineDisplay(hazard.deadline).text}
+                  {getDeadlineDisplay(hazard.deadline).isOverdue && ' (已逾期)'}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">责任部门</p>
-                <p className="text-sm font-medium text-slate-800">{hazard.responsible_dept || '待指定'}</p>
+                <p className={cn('text-sm font-medium', getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
+                  {getDeptDisplay(hazard.responsible_dept).text}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">责任人</p>
@@ -1260,12 +1474,14 @@ function DetailModal({
                   <div
                     className={cn(
                       'w-6 h-6 rounded-full flex items-center justify-center text-white text-xs',
-                      getAvatarColor(hazard.responsible_person || '待')
+                      getAvatarColor(getPersonDisplay(hazard.responsible_person).text)
                     )}
                   >
-                    {getInitials(hazard.responsible_person || '待')}
+                    {getInitials(getPersonDisplay(hazard.responsible_person).text)}
                   </div>
-                  <span className="text-sm font-medium text-slate-800">{hazard.responsible_person || '待指定'}</span>
+                  <span className={cn('text-sm font-medium', getPersonDisplay(hazard.responsible_person).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
+                    {getPersonDisplay(hazard.responsible_person).text}
+                  </span>
                 </div>
               </div>
               {hazard.closed_at && (
@@ -1445,6 +1661,7 @@ export default function Hazards() {
     departments,
     users,
     reviewHazard,
+    getRectifiesByHazardId,
   } = useAppStore();
 
   const [levelFilter, setLevelFilter] = useState<HazardLevel | 'all'>('all');
@@ -1455,7 +1672,7 @@ export default function Hazards() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showRectifyModal, setShowRectifyModal] = useState(false);
-  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   const levelCounts = useMemo(() => {
     const counts: Record<string, number> = { all: hazards.length };
@@ -1505,24 +1722,18 @@ export default function Hazards() {
       setShowRectifyModal(true);
       return;
     }
-    if (action === 'review') {
-      const reviewer = users.find((u) => u.role === 'safety_manager')?.name || '安全管理员';
-      reviewHazard(hazard.id, true, reviewer);
+    if (action === 'review' || action === 'reject') {
       setShowDetailModal(false);
-      return;
-    }
-    if (action === 'reject') {
-      setShowDetailModal(false);
-      setShowRejectModal(true);
+      setShowReviewModal(true);
       return;
     }
   };
 
-  const handleRejectConfirm = (remark: string) => {
+  const handleReviewConfirm = (passed: boolean, reviewRemark: string) => {
     if (!selectedHazard) return;
-    const reviewer = users.find((u) => u.role === 'safety_manager')?.name || '安全管理员';
-    reviewHazard(selectedHazard.id, false, reviewer, remark);
-    setShowRejectModal(false);
+    const reviewer = users.find((u) => u.role === 'safety_manager') || users[0];
+    reviewHazard(selectedHazard.id, passed, reviewer.name, reviewer.id, reviewRemark);
+    setShowReviewModal(false);
     setSelectedHazard(null);
   };
 
@@ -1668,14 +1879,15 @@ export default function Hazards() {
         }}
       />
 
-      <RejectModal
+      <ReviewModal
         hazard={selectedHazard}
-        open={showRejectModal}
+        rectifies={selectedHazard ? getRectifiesByHazardId(selectedHazard.id) : []}
+        open={showReviewModal}
         onClose={() => {
-          setShowRejectModal(false);
+          setShowReviewModal(false);
           setSelectedHazard(null);
         }}
-        onConfirm={handleRejectConfirm}
+        onConfirm={handleReviewConfirm}
       />
 
       <DetailModal

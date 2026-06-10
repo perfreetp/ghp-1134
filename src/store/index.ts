@@ -156,17 +156,21 @@ interface AppStore {
   addDrill: (drill: Omit<Drill, 'id' | 'created_at'>) => void;
 
   createInspectionTask: (data: Omit<InspectionTask, 'id' | 'created_at' | 'status' | 'progress'>) => void;
-  addInspectionRecord: (record: Omit<InspectionRecord, 'id'>) => void;
+  addInspectionRecord: (record: Omit<InspectionRecord, 'id'>) => InspectionRecord | null;
   updateTaskStatus: (taskId: string, status: TaskStatus) => void;
   registerHazardFromInspection: (data: {
-    record: Omit<InspectionRecord, 'id'>;
+    record: InspectionRecord;
     task_id: string;
     task_title: string;
     hazard_level?: HazardLevel;
     hazard_title?: string;
     reporter_id: string;
     reporter_name: string;
+    deadline?: string;
+    responsible_dept?: string;
   }) => Hazard | null;
+  getHazardsByTaskId: (taskId: string) => Hazard[];
+  getHazardsByRecordId: (recordId: string) => Hazard | undefined;
 
   registerHazard: (data: Omit<Hazard, 'id' | 'status' | 'created_at'>) => void;
   assignHazard: (hazardId: string, data: { responsible_dept: string; responsible_person: string; deadline: string; assigner_name: string }) => void;
@@ -1041,8 +1045,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   addInspectionRecord: (record) => {
+    let newRecord: InspectionRecord | null = null;
     set((state) => {
-      const newRecord: InspectionRecord = {
+      newRecord = {
         ...record,
         id: generateId('rec'),
       };
@@ -1086,6 +1091,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         inspectionTasks: newTasks,
       };
     });
+    return newRecord;
   },
 
   updateTaskStatus: (taskId, status) => {
@@ -1147,9 +1153,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const building = point ? state.buildings.find((b) => b.id === point.building_id) : null;
       const title = data.hazard_title || `巡检发现：${data.record.point_name} 异常`;
       const level = data.hazard_level || HazardLevelEnum.GENERAL;
+      const newHazardId = generateId('hz');
+      const recordId = data.record.id || '';
       
       newHazard = {
-        id: generateId('hz'),
+        id: newHazardId,
         title,
         description: data.record.remark || '巡检时发现该点位存在异常情况，需进一步整改。',
         level,
@@ -1161,21 +1169,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
         reporter_id: data.reporter_id,
         reporter_name: data.reporter_name,
         photos: data.record.photos || [],
-        responsible_dept: '',
+        responsible_dept: data.responsible_dept || '',
         responsible_person: '',
-        deadline: '',
+        deadline: data.deadline || '',
         created_at: formatDateTime(new Date()),
         source: HazardSourceEnum.INSPECTION,
         source_task_id: data.task_id,
         source_task_title: data.task_title,
-        source_record_id: '',
+        source_record_id: recordId,
         rectify_count: 0,
       };
       
       const newHazards = [newHazard, ...state.hazards];
+      
+      let newRecords = state.inspectionRecords;
+      if (recordId) {
+        newRecords = state.inspectionRecords.map((r) =>
+          r.id === recordId ? { ...r, hazard_id: newHazardId } : r
+        );
+      }
+      
       doPersist({
         inspectionTasks: state.inspectionTasks,
-        inspectionRecords: state.inspectionRecords,
+        inspectionRecords: newRecords,
         hazards: newHazards,
         hazardRectifies: state.hazardRectifies,
         drills: state.drills,
@@ -1184,10 +1200,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
         equipments: state.equipments,
         changeLogs: state.changeLogs,
       });
-      return { hazards: newHazards };
+      return { 
+        hazards: newHazards,
+        inspectionRecords: newRecords,
+      };
     });
     return newHazard;
   },
+
+  getHazardsByTaskId: (taskId) =>
+    get().hazards.filter((h) => h.source_task_id === taskId),
+  getHazardsByRecordId: (recordId) =>
+    get().hazards.find((h) => h.source_record_id === recordId),
 
   getRectifiesByHazardId: (hazardId) =>
     get().hazardRectifies.filter((r) => r.hazard_id === hazardId),

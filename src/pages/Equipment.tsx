@@ -30,7 +30,7 @@ import {
   CheckCycle,
   CheckCycleLabels,
 } from '@/types';
-import type { Equipment, EquipmentMaintenance, ChangeLog } from '@/types';
+import type { Equipment, EquipmentMaintenance, ChangeLog, Building } from '@/types';
 import { cn } from '@/lib/utils';
 
 const equipmentCategoryList = [
@@ -57,11 +57,46 @@ const statusIcons: Record<EquipmentStatus, React.ReactNode> = {
 };
 
 type StatusFilter = 'all' | EquipmentStatus;
+type ViewMode = 'list' | 'warning';
 
-const today = '2026-06-10';
+const TODAY = new Date('2026-06-10');
 
-const isOverdue = (nextCheckDate: string): boolean => {
-  return nextCheckDate < today;
+const parseDate = (dateStr: string): Date => {
+  return new Date(dateStr.replace(/-/g, '/'));
+};
+
+const addDays = (date: Date, days: number): Date => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+};
+
+const isOverdue = (nextCheckDate: string | null | undefined): boolean => {
+  if (!nextCheckDate) return false;
+  return parseDate(nextCheckDate) < TODAY;
+};
+
+const isThisWeek = (nextCheckDate: string | null | undefined): boolean => {
+  if (!nextCheckDate) return false;
+  const date = parseDate(nextCheckDate);
+  const weekEnd = addDays(TODAY, 7);
+  return date >= TODAY && date <= weekEnd;
+};
+
+const isIn30Days = (nextCheckDate: string | null | undefined): boolean => {
+  if (!nextCheckDate) return false;
+  const date = parseDate(nextCheckDate);
+  const weekEnd = addDays(TODAY, 7);
+  const thirtyDaysEnd = addDays(TODAY, 30);
+  return date > weekEnd && date <= thirtyDaysEnd;
+};
+
+const getDaysDiff = (nextCheckDate: string | null | undefined): number => {
+  if (!nextCheckDate) return 0;
+  const date = parseDate(nextCheckDate);
+  const diffTime = date.getTime() - TODAY.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
 };
 
 const maintenanceTypeLabels: Record<string, string> = {
@@ -78,11 +113,13 @@ export default function Equipment() {
     updateEquipmentCheckCycle,
     updateSingleEquipmentCycle,
     changeLogs,
+    buildings,
   } = useAppStore();
 
   const [categoryFilter, setCategoryFilter] = useState<EquipmentCategory | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchText, setSearchText] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState<Equipment | null>(null);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState<Equipment | null>(null);
@@ -111,6 +148,24 @@ export default function Equipment() {
       return matchCategory && matchStatus && matchSearch;
     });
   }, [equipments, categoryFilter, statusFilter, searchText]);
+
+  const warningGroups = useMemo(() => {
+    const searchFiltered = equipments.filter((eq) => {
+      const matchCategory = categoryFilter === 'all' || eq.category === categoryFilter;
+      const matchSearch =
+        !searchText ||
+        eq.code.toLowerCase().includes(searchText.toLowerCase()) ||
+        eq.name.toLowerCase().includes(searchText.toLowerCase()) ||
+        eq.model.toLowerCase().includes(searchText.toLowerCase());
+      return matchCategory && matchSearch;
+    });
+
+    const overdue = searchFiltered.filter((eq) => isOverdue(eq.next_check_date));
+    const thisWeek = searchFiltered.filter((eq) => isThisWeek(eq.next_check_date));
+    const in30Days = searchFiltered.filter((eq) => isIn30Days(eq.next_check_date));
+
+    return { overdue, thisWeek, in30Days };
+  }, [equipments, categoryFilter, searchText]);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -212,155 +267,217 @@ export default function Equipment() {
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusButton
-            active={statusFilter === 'all'}
-            onClick={() => setStatusFilter('all')}
+            active={viewMode === 'list' && statusFilter === 'all'}
+            onClick={() => {
+              setViewMode('list');
+              setStatusFilter('all');
+            }}
             label="全部"
           />
           <StatusButton
-            active={statusFilter === EquipmentStatus.NORMAL}
-            onClick={() => setStatusFilter(EquipmentStatus.NORMAL)}
+            active={viewMode === 'list' && statusFilter === EquipmentStatus.NORMAL}
+            onClick={() => {
+              setViewMode('list');
+              setStatusFilter(EquipmentStatus.NORMAL);
+            }}
             label="正常"
             color="green"
           />
           <StatusButton
-            active={statusFilter === EquipmentStatus.MAINTENANCE}
-            onClick={() => setStatusFilter(EquipmentStatus.MAINTENANCE)}
+            active={viewMode === 'list' && statusFilter === EquipmentStatus.MAINTENANCE}
+            onClick={() => {
+              setViewMode('list');
+              setStatusFilter(EquipmentStatus.MAINTENANCE);
+            }}
             label="维护中"
             color="blue"
           />
           <StatusButton
-            active={statusFilter === EquipmentStatus.FAULT}
-            onClick={() => setStatusFilter(EquipmentStatus.FAULT)}
+            active={viewMode === 'list' && statusFilter === EquipmentStatus.FAULT}
+            onClick={() => {
+              setViewMode('list');
+              setStatusFilter(EquipmentStatus.FAULT);
+            }}
             label="故障"
             color="red"
           />
           <StatusButton
-            active={statusFilter === EquipmentStatus.EXPIRED}
-            onClick={() => setStatusFilter(EquipmentStatus.EXPIRED)}
+            active={viewMode === 'list' && statusFilter === EquipmentStatus.EXPIRED}
+            onClick={() => {
+              setViewMode('list');
+              setStatusFilter(EquipmentStatus.EXPIRED);
+            }}
             label="过期"
             color="orange"
+          />
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+          <StatusButton
+            active={viewMode === 'warning'}
+            onClick={() => setViewMode('warning')}
+            label="到期预警"
+            color="amber"
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        {filteredEquipments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <Cpu className="w-16 h-16 text-gray-300 mb-4" />
-            <p className="text-gray-500 text-lg">暂无设备数据</p>
-            <p className="text-gray-400 text-sm mt-1">请调整筛选条件或新增设备</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">设备编号</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">设备名称</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">类型</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">型号</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">位置</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">上次检查</th>
-                  <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">下次检查</th>
-                  <th className="text-right py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filteredEquipments.map((eq) => {
-                  const building = getBuildingById(eq.building_id);
-                  const overdue = isOverdue(eq.next_check_date);
-                  return (
-                    <tr key={eq.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="py-4 px-5">
-                        <span className="text-sm font-mono text-gray-600">{eq.code}</span>
-                      </td>
-                      <td className="py-4 px-5">
-                        <span className="text-sm font-medium text-gray-900">{eq.name}</span>
-                      </td>
-                      <td className="py-4 px-5">
-                        <span className="text-sm text-gray-600">
-                          {EquipmentCategoryLabels[eq.category]}
-                        </span>
-                      </td>
-                      <td className="py-4 px-5">
-                        <span className="text-sm text-gray-500">{eq.model}</span>
-                      </td>
-                      <td className="py-4 px-5">
-                        <div className="text-sm text-gray-600 max-w-[180px] truncate" title={building?.name}>
-                          {building?.name || '-'}
-                        </div>
-                      </td>
-                      <td className="py-4 px-5">
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border',
-                            statusStyles[eq.status]
-                          )}
-                        >
-                          {statusIcons[eq.status]}
-                          {EquipmentStatusLabels[eq.status]}
-                        </span>
-                      </td>
-                      <td className="py-4 px-5">
-                        <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                          <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                          {eq.last_check_date}
-                        </div>
-                      </td>
-                      <td className="py-4 px-5">
-                        <div className="flex items-center gap-1.5">
-                          {overdue ? (
-                            <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                          ) : (
-                            <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                          )}
+      {viewMode === 'list' ? (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          {filteredEquipments.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <Cpu className="w-16 h-16 text-gray-300 mb-4" />
+              <p className="text-gray-500 text-lg">暂无设备数据</p>
+              <p className="text-gray-400 text-sm mt-1">请调整筛选条件或新增设备</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">设备编号</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">设备名称</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">类型</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">型号</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">位置</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">状态</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">上次检查</th>
+                    <th className="text-left py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">下次检查</th>
+                    <th className="text-right py-3.5 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filteredEquipments.map((eq) => {
+                    const building = getBuildingById(eq.building_id);
+                    const overdue = isOverdue(eq.next_check_date);
+                    return (
+                      <tr key={eq.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="py-4 px-5">
+                          <span className="text-sm font-mono text-gray-600">{eq.code}</span>
+                        </td>
+                        <td className="py-4 px-5">
+                          <span className="text-sm font-medium text-gray-900">{eq.name}</span>
+                        </td>
+                        <td className="py-4 px-5">
+                          <span className="text-sm text-gray-600">
+                            {EquipmentCategoryLabels[eq.category]}
+                          </span>
+                        </td>
+                        <td className="py-4 px-5">
+                          <span className="text-sm text-gray-500">{eq.model}</span>
+                        </td>
+                        <td className="py-4 px-5">
+                          <div className="text-sm text-gray-600 max-w-[180px] truncate" title={building?.name}>
+                            {building?.name || '-'}
+                          </div>
+                        </td>
+                        <td className="py-4 px-5">
                           <span
                             className={cn(
-                              'text-sm font-medium',
-                              overdue ? 'text-red-600 font-bold' : 'text-gray-600'
+                              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border',
+                              statusStyles[eq.status]
                             )}
                           >
-                            {eq.next_check_date}
-                            {overdue && <span className="ml-1 text-xs">(逾期)</span>}
+                            {statusIcons[eq.status]}
+                            {EquipmentStatusLabels[eq.status]}
                           </span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-5">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setShowDetailModal(eq)}
-                            className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                            title="查看详情"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleOpenSingleCycleModal(eq)}
-                            className="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                            title="调整周期"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setShowMaintenanceModal(eq)}
-                            className="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                            title="维护记录"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                        </td>
+                        <td className="py-4 px-5">
+                          <div className="flex items-center gap-1.5 text-sm text-gray-500">
+                            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                            {eq.last_check_date}
+                          </div>
+                        </td>
+                        <td className="py-4 px-5">
+                          <div className="flex items-center gap-1.5">
+                            {overdue ? (
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                            ) : (
+                              <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            )}
+                            <span
+                              className={cn(
+                                'text-sm font-medium',
+                                overdue ? 'text-red-600 font-bold' : 'text-gray-600'
+                              )}
+                            >
+                              {eq.next_check_date}
+                              {overdue && <span className="ml-1 text-xs">(逾期)</span>}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-5">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => setShowDetailModal(eq)}
+                              className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="查看详情"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenSingleCycleModal(eq)}
+                              className="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                              title="调整周期"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setShowMaintenanceModal(eq)}
+                              className="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                              title="维护记录"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <WarningGroup
+            title="已逾期"
+            equipments={warningGroups.overdue}
+            color="red"
+            getBuildingById={getBuildingById}
+            onAdjustCycle={handleOpenSingleCycleModal}
+            onViewMaintenance={setShowMaintenanceModal}
+          />
+          <WarningGroup
+            title="本周到期"
+            equipments={warningGroups.thisWeek}
+            color="orange"
+            getBuildingById={getBuildingById}
+            onAdjustCycle={handleOpenSingleCycleModal}
+            onViewMaintenance={setShowMaintenanceModal}
+          />
+          <WarningGroup
+            title="30天内到期"
+            equipments={warningGroups.in30Days}
+            color="yellow"
+            getBuildingById={getBuildingById}
+            onAdjustCycle={handleOpenSingleCycleModal}
+            onViewMaintenance={setShowMaintenanceModal}
+          />
+          {warningGroups.overdue.length === 0 &&
+           warningGroups.thisWeek.length === 0 &&
+           warningGroups.in30Days.length === 0 && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-20">
+              <div className="flex flex-col items-center justify-center">
+                <CheckCircle2 className="w-16 h-16 text-green-400 mb-4" />
+                <p className="text-gray-500 text-lg">暂无到期预警设备</p>
+                <p className="text-gray-400 text-sm mt-1">所有设备检查日期均在正常范围内</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {showCycleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -789,13 +906,14 @@ function StatusButton({
   active: boolean;
   onClick: () => void;
   label: string;
-  color?: 'green' | 'blue' | 'red' | 'orange';
+  color?: 'green' | 'blue' | 'red' | 'orange' | 'amber';
 }) {
   const activeStyles = {
     green: 'bg-green-50 border-green-200 text-green-700',
     blue: 'bg-blue-50 border-blue-200 text-blue-700',
     red: 'bg-red-50 border-red-200 text-red-700',
     orange: 'bg-orange-50 border-orange-200 text-orange-700',
+    amber: 'bg-amber-50 border-amber-200 text-amber-700',
   };
 
   return (
@@ -917,6 +1035,208 @@ function ChangeLogCard({ log }: { log: ChangeLog }) {
       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-50 text-xs text-gray-400">
         <Check className="w-3.5 h-3.5" />
         操作人：{log.operator}
+      </div>
+    </div>
+  );
+}
+
+interface WarningGroupProps {
+  title: string;
+  equipments: Equipment[];
+  color: 'red' | 'orange' | 'yellow';
+  getBuildingById: (id: string) => Building | undefined;
+  onAdjustCycle: (equipment: Equipment) => void;
+  onViewMaintenance: (equipment: Equipment) => void;
+}
+
+function WarningGroup({
+  title,
+  equipments,
+  color,
+  getBuildingById,
+  onAdjustCycle,
+  onViewMaintenance,
+}: WarningGroupProps) {
+  const colorStyles = {
+    red: {
+      border: 'border-red-200',
+      bg: 'bg-red-50/50',
+      titleBg: 'bg-red-500',
+      titleText: 'text-white',
+      countBg: 'bg-white/20',
+    },
+    orange: {
+      border: 'border-orange-200',
+      bg: 'bg-orange-50/50',
+      titleBg: 'bg-orange-500',
+      titleText: 'text-white',
+      countBg: 'bg-white/20',
+    },
+    yellow: {
+      border: 'border-yellow-200',
+      bg: 'bg-yellow-50/50',
+      titleBg: 'bg-yellow-500',
+      titleText: 'text-white',
+      countBg: 'bg-white/20',
+    },
+  };
+
+  const styles = colorStyles[color];
+
+  if (equipments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={cn('rounded-xl border-2 overflow-hidden shadow-sm', styles.border, styles.bg)}>
+      <div className={cn('flex items-center justify-between px-5 py-3.5', styles.titleBg)}>
+        <div className="flex items-center gap-2.5">
+          {color === 'red' && <AlertOctagon className="w-5 h-5 text-white" />}
+          {color === 'orange' && <AlertTriangle className="w-5 h-5 text-white" />}
+          {color === 'yellow' && <Clock className="w-5 h-5 text-white" />}
+          <h3 className={cn('text-base font-bold', styles.titleText)}>{title}</h3>
+        </div>
+        <span className={cn('px-3 py-1 rounded-full text-xs font-bold', styles.countBg, styles.titleText)}>
+          {equipments.length} 台
+        </span>
+      </div>
+      <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {equipments.map((equipment) => (
+          <WarningCard
+            key={equipment.id}
+            equipment={equipment}
+            color={color}
+            building={getBuildingById(equipment.building_id)}
+            onAdjustCycle={() => onAdjustCycle(equipment)}
+            onViewMaintenance={() => onViewMaintenance(equipment)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface WarningCardProps {
+  equipment: Equipment;
+  color: 'red' | 'orange' | 'yellow';
+  building?: Building;
+  onAdjustCycle: () => void;
+  onViewMaintenance: () => void;
+}
+
+function WarningCard({
+  equipment,
+  color,
+  building,
+  onAdjustCycle,
+  onViewMaintenance,
+}: WarningCardProps) {
+  const colorStyles = {
+    red: {
+      border: 'border-red-200',
+      dateText: 'text-red-600',
+      dateBg: 'bg-red-100',
+      badgeBg: 'bg-red-50',
+      badgeText: 'text-red-700',
+      badgeBorder: 'border-red-200',
+    },
+    orange: {
+      border: 'border-orange-200',
+      dateText: 'text-orange-600',
+      dateBg: 'bg-orange-100',
+      badgeBg: 'bg-orange-50',
+      badgeText: 'text-orange-700',
+      badgeBorder: 'border-orange-200',
+    },
+    yellow: {
+      border: 'border-yellow-200',
+      dateText: 'text-yellow-700',
+      dateBg: 'bg-yellow-100',
+      badgeBg: 'bg-yellow-50',
+      badgeText: 'text-yellow-700',
+      badgeBorder: 'border-yellow-200',
+    },
+  };
+
+  const styles = colorStyles[color];
+  const daysDiff = getDaysDiff(equipment.next_check_date);
+  const hasNextCheckDate = !!equipment.next_check_date;
+
+  const getDaysLabel = () => {
+    if (!hasNextCheckDate) return '未设置';
+    if (daysDiff < 0) {
+      return `已逾期${Math.abs(daysDiff)}天`;
+    }
+    if (daysDiff === 0) {
+      return '今天到期';
+    }
+    return `还剩${daysDiff}天`;
+  };
+
+  return (
+    <div className={cn('bg-white rounded-xl border p-4 shadow-sm hover:shadow-md transition-shadow', styles.border)}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-bold text-gray-900 truncate">{equipment.name || '-'}</h4>
+          <p className="text-xs font-mono text-gray-500 mt-0.5">{equipment.code || '-'}</p>
+        </div>
+        <span
+          className={cn(
+            'px-2.5 py-1 text-xs font-medium rounded-lg border ml-2 shrink-0',
+            styles.badgeBg,
+            styles.badgeText,
+            styles.badgeBorder
+          )}
+        >
+          {EquipmentCategoryLabels[equipment.category] || '-'}
+        </span>
+      </div>
+
+      <div className="space-y-2.5 mb-4">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-400 shrink-0 w-14">楼栋：</span>
+          <span className="text-gray-700 truncate">{building?.name || '-'}</span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-400 shrink-0 w-14">周期：</span>
+          <span className="text-gray-700">
+            {CheckCycleLabels[equipment.check_cycle]
+              ? `${CheckCycleLabels[equipment.check_cycle]}巡检`
+              : '-'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-400 shrink-0 w-14">日期：</span>
+          <div className="flex items-center gap-1.5">
+            <Calendar className={cn('w-4 h-4', styles.dateText)} />
+            <span className={cn('font-semibold', styles.dateText)}>
+              {hasNextCheckDate ? equipment.next_check_date : '未设置'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className={cn('flex items-center justify-center py-2 rounded-lg mb-4', styles.dateBg)}>
+        <span className={cn('text-sm font-bold', styles.dateText)}>
+          {getDaysLabel()}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onAdjustCycle}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          调整周期
+        </button>
+        <button
+          onClick={onViewMaintenance}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 hover:border-gray-300 transition-colors"
+        >
+          <FileText className="w-4 h-4" />
+          维护记录
+        </button>
       </div>
     </div>
   );

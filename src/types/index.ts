@@ -138,12 +138,14 @@ export interface InspectionRecord {
   task_id: string;
   point_id: string;
   point_name: string;
+  building_id?: string;
   inspector_id: string;
   inspector_name: string;
   status: 'normal' | 'abnormal';
   remark?: string;
   photos?: string[];
   inspect_time: string;
+  hazard_id?: string;
 }
 
 export enum HazardSource {

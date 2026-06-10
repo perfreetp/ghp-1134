@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutGrid,
   List,
@@ -32,6 +33,9 @@ import {
   UserRole,
   HazardLevel,
   HazardLevelLabels,
+  HazardStatus,
+  HazardStatusLabels,
+  type Hazard,
 } from '@/types';
 import {
   cn,
@@ -432,26 +436,34 @@ function RegisterHazardModal({
   open,
   data,
   task,
+  departments,
   onClose,
   onConfirm,
 }: {
   open: boolean;
   data: RegisterHazardData | null;
   task: InspectionTask | null;
+  departments: { id: string; name: string }[];
   onClose: () => void;
-  onConfirm: (level: HazardLevel, title: string) => void;
+  onConfirm: (level: HazardLevel, title: string, deadline?: string, responsibleDept?: string) => void;
 }) {
   const [hazardTitle, setHazardTitle] = useState('');
   const [hazardLevel, setHazardLevel] = useState<HazardLevel>(HazardLevel.GENERAL);
+  const [deadline, setDeadline] = useState('');
+  const [responsibleDept, setResponsibleDept] = useState('');
 
   if (!open || !data || !task) return null;
 
   const defaultTitle = `巡检发现：${data.point.name} 异常`;
 
-  const handleOpen = () => {
-    setHazardTitle(defaultTitle);
-    setHazardLevel(HazardLevel.GENERAL);
-  };
+  useEffect(() => {
+    if (open) {
+      setHazardTitle(defaultTitle);
+      setHazardLevel(HazardLevel.GENERAL);
+      setDeadline('');
+      setResponsibleDept('');
+    }
+  }, [open, defaultTitle]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -507,33 +519,74 @@ function RegisterHazardModal({
             </div>
           </div>
 
-          <div className="bg-slate-50 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm">
-              <Building2 size={14} className="text-slate-400" />
-              <span className="text-slate-600">{task.building_name}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin size={14} className="text-slate-400" />
-              <span className="text-slate-600">{data.point.name}</span>
-            </div>
-            {data.record.remark && (
-              <div className="flex items-start gap-2 text-sm">
-                <FileText size={14} className="text-slate-400 mt-0.5" />
-                <span className="text-slate-600 line-clamp-2">{data.record.remark}</span>
-              </div>
-            )}
-            {data.record.photos && data.record.photos.length > 0 && (
-              <div className="flex gap-1.5 pt-1">
-                {data.record.photos.slice(0, 4).map((photo, idx) => (
-                  <img
-                    key={idx}
-                    src={photo}
-                    alt={`照片 ${idx + 1}`}
-                    className="w-12 h-12 rounded object-cover"
-                  />
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              整改期限 <span className="text-slate-400 font-normal">(可选)</span>
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              责任部门 <span className="text-slate-400 font-normal">(可选)</span>
+            </label>
+            <div className="relative">
+              <select
+                value={responsibleDept}
+                onChange={(e) => setResponsibleDept(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
+              >
+                <option value="">请选择责任部门</option>
+                {departments.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </option>
                 ))}
+              </select>
+              <ChevronDown
+                size={16}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
+            </div>
+          </div>
+
+          <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+            <p className="text-xs text-sky-700 font-medium mb-2">
+              自动带入：楼栋、点位、巡检备注、现场照片
+            </p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-sm">
+                <Building2 size={14} className="text-slate-400" />
+                <span className="text-slate-600">{task.building_name}</span>
               </div>
-            )}
+              <div className="flex items-center gap-2 text-sm">
+                <MapPin size={14} className="text-slate-400" />
+                <span className="text-slate-600">{data.point.name}</span>
+              </div>
+              {data.record.remark && (
+                <div className="flex items-start gap-2 text-sm">
+                  <FileText size={14} className="text-slate-400 mt-0.5" />
+                  <span className="text-slate-600 line-clamp-2">{data.record.remark}</span>
+                </div>
+              )}
+              {data.record.photos && data.record.photos.length > 0 && (
+                <div className="flex gap-1.5 pt-1">
+                  {data.record.photos.slice(0, 4).map((photo, idx) => (
+                    <img
+                      key={idx}
+                      src={photo}
+                      alt={`照片 ${idx + 1}`}
+                      className="w-12 h-12 rounded object-cover"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <p className="text-xs text-slate-500">
@@ -551,7 +604,12 @@ function RegisterHazardModal({
           </button>
           <button
             onClick={() => {
-              onConfirm(hazardLevel, hazardTitle || defaultTitle);
+              onConfirm(
+                hazardLevel,
+                hazardTitle || defaultTitle,
+                deadline || undefined,
+                responsibleDept || undefined
+              );
               onClose();
             }}
             className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
@@ -575,7 +633,9 @@ function ExecuteModal({
 }) {
   const {
     inspectionPoints,
+    buildings,
     users,
+    departments,
     inspectionRecords,
     addInspectionRecord,
     registerHazardFromInspection,
@@ -640,6 +700,7 @@ function ExecuteModal({
       task_id: task.id,
       point_id: point.id,
       point_name: point.name,
+      building_id: task.building_id,
       inspector_id: task.assignee_id,
       inspector_name: inspector?.name || task.assignee_name,
       status: editState.status,
@@ -665,6 +726,7 @@ function ExecuteModal({
       task_id: task.id,
       point_id: point.id,
       point_name: point.name,
+      building_id: task.building_id,
       inspector_id: task.assignee_id,
       inspector_name: inspector?.name || task.assignee_name,
       status: 'abnormal',
@@ -677,21 +739,34 @@ function ExecuteModal({
     setRegisterHazardOpen(true);
   };
 
-  const handleConfirmRegisterHazard = (level: HazardLevel, title: string) => {
+  const handleConfirmRegisterHazard = (
+    level: HazardLevel,
+    title: string,
+    deadline?: string,
+    responsibleDept?: string
+  ) => {
     if (!task || !registerHazardData) return;
 
+    const savedRecord = addInspectionRecord(registerHazardData.record);
+
     registerHazardFromInspection({
-      record: registerHazardData.record,
+      record: savedRecord,
       task_id: task.id,
       task_title: task.title,
       hazard_level: level,
       hazard_title: title,
       reporter_id: task.assignee_id,
       reporter_name: task.assignee_name,
+      deadline,
+      responsible_dept: responsibleDept,
     });
 
-    handleSavePoint(registerHazardData.point);
-
+    setEditStates((prev) => {
+      const next = { ...prev };
+      delete next[registerHazardData.point.id];
+      return next;
+    });
+    setExpandedPointId(null);
     setRegisterHazardData(null);
   };
 
@@ -1052,6 +1127,7 @@ function ExecuteModal({
         open={registerHazardOpen}
         data={registerHazardData}
         task={task}
+        departments={departments}
         onClose={() => {
           setRegisterHazardOpen(false);
           setRegisterHazardData(null);
@@ -1244,7 +1320,15 @@ function TaskDetailSidebar({
   onClose: () => void;
   onExecute: (task: InspectionTask) => void;
 }) {
-  const { inspectionPoints, inspectionRecords, users } = useAppStore();
+  const navigate = useNavigate();
+  const {
+    inspectionPoints,
+    buildings,
+    users,
+    departments,
+    inspectionRecords,
+    getHazardsByTaskId,
+  } = useAppStore();
 
   const taskRecords: InspectionRecord[] = useMemo(() => {
     if (!task) return [];
@@ -1265,6 +1349,60 @@ function TaskDetailSidebar({
   const abnormalCount = useMemo(() => {
     return taskRecords.filter((r) => r.status === 'abnormal').length;
   }, [taskRecords]);
+
+  const abnormalRecords = useMemo(() => {
+    return taskRecords.filter((r) => r.status === 'abnormal');
+  }, [taskRecords]);
+
+  const taskHazards = useMemo(() => {
+    if (!task) return [];
+    return getHazardsByTaskId(task.id);
+  }, [task, getHazardsByTaskId]);
+
+  const linkedHazardCount = useMemo(() => {
+    return abnormalRecords.filter((r) => r.hazard_id).length;
+  }, [abnormalRecords]);
+
+  const getHazardByRecordId = (recordId: string): Hazard | undefined => {
+    return taskHazards.find((h) => h.source_record_id === recordId);
+  };
+
+  const getDepartmentName = (deptId: string): string => {
+    const dept = departments.find((d) => d.id === deptId);
+    return dept?.name || '';
+  };
+
+  const getHazardLevelColor = (level: HazardLevel): string => {
+    switch (level) {
+      case HazardLevel.CRITICAL:
+        return 'bg-red-100 text-red-700 border-red-300';
+      case HazardLevel.MAJOR:
+        return 'bg-orange-100 text-orange-700 border-orange-300';
+      case HazardLevel.GENERAL:
+        return 'bg-amber-100 text-amber-700 border-amber-300';
+      case HazardLevel.MINOR:
+        return 'bg-blue-100 text-blue-700 border-blue-300';
+      default:
+        return 'bg-slate-100 text-slate-700 border-slate-300';
+    }
+  };
+
+  const getHazardStatusColor = (status: HazardStatus): string => {
+    switch (status) {
+      case HazardStatus.REGISTERED:
+        return 'bg-slate-100 text-slate-700';
+      case HazardStatus.ASSIGNED:
+        return 'bg-sky-100 text-sky-700';
+      case HazardStatus.RECTIFYING:
+        return 'bg-amber-100 text-amber-700';
+      case HazardStatus.PENDING_REVIEW:
+        return 'bg-purple-100 text-purple-700';
+      case HazardStatus.CLOSED:
+        return 'bg-emerald-100 text-emerald-700';
+      default:
+        return 'bg-slate-100 text-slate-700';
+    }
+  };
 
   const totalPhotos = useMemo(() => {
     return taskRecords.reduce((sum, r) => sum + (r.photos?.length || 0), 0);
@@ -1453,6 +1591,128 @@ function TaskDetailSidebar({
             </div>
           </div>
 
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-500" />
+              异常汇总
+            </h4>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-red-50 rounded-lg p-3 text-center border border-red-100">
+                <p className="text-2xl font-bold text-red-600">{abnormalCount}</p>
+                <p className="text-xs text-slate-500 mt-1">异常点位</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-100">
+                <p className="text-2xl font-bold text-amber-600">{linkedHazardCount}</p>
+                <p className="text-xs text-slate-500 mt-1">已关联隐患</p>
+              </div>
+            </div>
+            {abnormalRecords.length > 0 ? (
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {abnormalRecords.map((record) => {
+                  const point = taskPoints.find((p) => p.id === record.point_id);
+                  const hazard = getHazardByRecordId(record.id);
+                  return (
+                    <div
+                      key={record.id}
+                      className="p-3 bg-red-50/50 border border-red-200 rounded-lg"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <span className="text-sm font-medium text-red-800">
+                            {point?.name || record.point_name}
+                          </span>
+                          {point?.floor && (
+                            <span className="text-xs text-slate-500 ml-2">
+                              {point.floor}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">
+                          异常
+                        </span>
+                      </div>
+                      {record.remark && (
+                        <p className="text-xs text-slate-600 mb-2 line-clamp-2">
+                          {record.remark}
+                        </p>
+                      )}
+                      {record.photos && record.photos.length > 0 && (
+                        <div className="flex gap-1.5 mb-3">
+                          {record.photos.slice(0, 3).map((photo, idx) => (
+                            <img
+                              key={idx}
+                              src={photo}
+                              alt={`照片 ${idx + 1}`}
+                              className="w-12 h-12 rounded object-cover border border-red-200"
+                            />
+                          ))}
+                          {record.photos.length > 3 && (
+                            <div className="w-12 h-12 rounded bg-red-100 flex items-center justify-center text-xs text-red-600 border border-red-200">
+                              +{record.photos.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {hazard ? (
+                        <div
+                          onClick={() => navigate('/hazards')}
+                          className="cursor-pointer bg-white rounded-lg p-3 border border-slate-200 hover:border-sky-300 hover:shadow-sm transition-all"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-slate-800 line-clamp-1">
+                              {hazard.title}
+                            </span>
+                            <span
+                              className={cn(
+                                'text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ml-2',
+                                getHazardLevelColor(hazard.level)
+                              )}
+                            >
+                              {HazardLevelLabels[hazard.level]}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={cn(
+                                'text-xs px-2 py-0.5 rounded-full font-medium',
+                                getHazardStatusColor(hazard.status)
+                              )}
+                            >
+                              {HazardStatusLabels[hazard.status]}
+                            </span>
+                            <span className="text-xs text-sky-600 flex items-center gap-1">
+                              查看整改进度
+                              <ChevronDown size={12} className="-rotate-90" />
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <Calendar size={12} />
+                              {hazard.deadline ? formatDate(hazard.deadline) : '待设置期限'}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Building2 size={12} />
+                              {hazard.responsible_dept ? getDepartmentName(hazard.responsible_dept) : '待派单'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-100 rounded-lg p-3 text-center">
+                          <span className="text-xs text-slate-500">未登记隐患</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-slate-400">
+                <CheckCircle2 size={24} className="mx-auto mb-2 text-emerald-400" />
+                <p className="text-sm">暂无异常点位</p>
+              </div>
+            )}
+          </div>
+
           <div className="px-6 py-5">
             <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
               <Camera size={16} className="text-slate-400" />
@@ -1474,28 +1734,59 @@ function TaskDetailSidebar({
             </div>
             {taskRecords.length > 0 ? (
               <div className="space-y-2 max-h-48 overflow-y-auto">
-                {taskRecords.slice(0, 5).map((record) => (
-                  <div key={record.id} className="p-3 bg-slate-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-slate-700">
-                        {record.point_name}
-                      </span>
-                      <span
-                        className={cn(
-                          'text-xs px-2 py-0.5 rounded-full font-medium',
-                          record.status === 'normal'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-red-100 text-red-700'
-                        )}
-                      >
-                        {record.status === 'normal' ? '正常' : '异常'}
-                      </span>
+                {taskRecords.slice(0, 5).map((record) => {
+                  const hazard = getHazardByRecordId(record.id);
+                  return (
+                    <div
+                      key={record.id}
+                      className={cn(
+                        'p-3 rounded-lg',
+                        record.status === 'abnormal' ? 'bg-red-50 border border-red-100' : 'bg-slate-50'
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span
+                          className={cn(
+                            'text-sm font-medium',
+                            record.status === 'abnormal' ? 'text-red-700' : 'text-slate-700'
+                          )}
+                        >
+                          {record.point_name}
+                        </span>
+                        <span
+                          className={cn(
+                            'text-xs px-2 py-0.5 rounded-full font-medium',
+                            record.status === 'normal'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-red-100 text-red-700'
+                          )}
+                        >
+                          {record.status === 'normal' ? '正常' : '异常'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {record.inspector_name} · {record.inspect_time}
+                      </p>
+                      {record.status === 'abnormal' && hazard && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'text-xs px-2 py-0.5 rounded-full',
+                              getHazardStatusColor(hazard.status)
+                            )}
+                          >
+                            隐患：{HazardStatusLabels[hazard.status]}
+                          </span>
+                        </div>
+                      )}
+                      {record.status === 'abnormal' && !hazard && (
+                        <div className="mt-2">
+                          <span className="text-xs text-slate-500">未登记隐患</span>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-slate-500">
-                      {record.inspector_name} · {record.inspect_time}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-6 text-slate-400">
