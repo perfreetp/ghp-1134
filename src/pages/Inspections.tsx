@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import {
   LayoutGrid,
   List,
-  Filter,
   Plus,
   Building2,
   User,
@@ -11,15 +10,23 @@ import {
   ChevronDown,
   X,
   Check,
+  ImagePlus,
+  Save,
+  Clock,
 } from 'lucide-react';
-import { inspectionTasks } from '@/data/inspections';
-import { buildings, inspectionPoints } from '@/data/buildings';
-import { users } from '@/data/users';
-import type { InspectionTask } from '@/types';
-import { TaskStatus, TaskStatusLabels, CheckCycle, CheckCycleLabels, UserRole } from '@/types';
+import { useAppStore } from '@/store';
+import type { InspectionTask, InspectionPoint, InspectionRecord } from '@/types';
+import {
+  TaskStatus,
+  TaskStatusLabels,
+  CheckCycle,
+  CheckCycleLabels,
+  UserRole,
+} from '@/types';
 import {
   cn,
   formatDate,
+  formatDateTime,
   isOverdue,
   getAvatarColor,
   getInitials,
@@ -33,6 +40,13 @@ const kanbanColumns: { key: TaskStatus; label: string; color: string; headerBg: 
   { key: TaskStatus.IN_PROGRESS, label: '执行中', color: 'border-amber-400', headerBg: 'bg-amber-500' },
   { key: TaskStatus.COMPLETED, label: '已完成', color: 'border-emerald-400', headerBg: 'bg-emerald-500' },
   { key: TaskStatus.OVERDUE, label: '已逾期', color: 'border-red-400', headerBg: 'bg-red-500' },
+];
+
+const MOCK_PHOTOS = [
+  'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=200&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1581093588401-fbb62a02f120?w=200&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1587293852726-70cdb56c2866?w=200&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1582139329536-e7284fece509?w=200&h=200&fit=crop',
 ];
 
 function TaskCard({ task, onClick }: { task: InspectionTask; onClick?: () => void }) {
@@ -110,20 +124,34 @@ function CreateTaskModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const {
+    buildings,
+    users,
+    createInspectionTask,
+    getPointsByBuildingId,
+  } = useAppStore();
+
+  const today = new Date();
+  const defaultStart = today.toISOString().slice(0, 10);
+  const defaultEnd = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
   const [title, setTitle] = useState('');
   const [buildingId, setBuildingId] = useState('');
   const [selectedPoints, setSelectedPoints] = useState<string[]>([]);
   const [assigneeId, setAssigneeId] = useState('');
   const [cycle, setCycle] = useState<CheckCycle>(CheckCycle.MONTHLY);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
 
   const buildingPoints = useMemo(
-    () => inspectionPoints.filter((p) => p.building_id === buildingId),
-    [buildingId]
+    () => (buildingId ? getPointsByBuildingId(buildingId) : []),
+    [buildingId, getPointsByBuildingId]
   );
 
-  const inspectors = users.filter((u) => u.role === UserRole.INSPECTOR);
+  const inspectors = useMemo(
+    () => users.filter((u) => u.role === UserRole.INSPECTOR),
+    [users]
+  );
 
   const handleTogglePoint = (pointId: string) => {
     setSelectedPoints((prev) =>
@@ -139,7 +167,47 @@ function CreateTaskModal({
     }
   };
 
+  const resetForm = () => {
+    const t = new Date();
+    setTitle('');
+    setBuildingId('');
+    setSelectedPoints([]);
+    setAssigneeId('');
+    setCycle(CheckCycle.MONTHLY);
+    setStartDate(t.toISOString().slice(0, 10));
+    setEndDate(new Date(t.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
+  };
+
   const handleSubmit = () => {
+    if (!title.trim()) return;
+    if (!buildingId) return;
+    if (selectedPoints.length === 0) return;
+    if (!assigneeId) return;
+    const finalStart = startDate || defaultStart;
+    const finalEnd = endDate || defaultEnd;
+
+    const safetyManager = users.find((u) => u.role === UserRole.SAFETY_MANAGER);
+    const creatorId = safetyManager?.id || users[0]?.id || '';
+    const creatorName = safetyManager?.name || users[0]?.name || '';
+    const building = buildings.find((b) => b.id === buildingId);
+    const assignee = users.find((u) => u.id === assigneeId);
+
+    createInspectionTask({
+      title: title.trim(),
+      type: 'routine',
+      assignee_id: assigneeId,
+      assignee_name: assignee?.name || '',
+      building_id: buildingId,
+      building_name: building?.name || '',
+      point_ids: selectedPoints,
+      cycle,
+      start_date: finalStart,
+      end_date: finalEnd,
+      creator_id: creatorId,
+      creator_name: creatorName,
+    });
+
+    resetForm();
     onClose();
   };
 
@@ -333,6 +401,368 @@ function CreateTaskModal({
   );
 }
 
+interface PointEditState {
+  remark: string;
+  photos: string[];
+}
+
+function ExecuteModal({
+  open,
+  task,
+  onClose,
+}: {
+  open: boolean;
+  task: InspectionTask | null;
+  onClose: () => void;
+}) {
+  const {
+    inspectionPoints,
+    users,
+    inspectionRecords,
+    addInspectionRecord,
+  } = useAppStore();
+
+  const [expandedPointId, setExpandedPointId] = useState<string | null>(null);
+  const [editStates, setEditStates] = useState<Record<string, PointEditState>>({});
+
+  const taskRecords: InspectionRecord[] = useMemo(() => {
+    if (!task) return [];
+    return inspectionRecords.filter((r) => r.task_id === task.id);
+  }, [task, inspectionRecords]);
+
+  const taskPoints: InspectionPoint[] = useMemo(() => {
+    if (!task) return [];
+    return task.point_ids
+      .map((pid) => inspectionPoints.find((p) => p.id === pid))
+      .filter(Boolean) as InspectionPoint[];
+  }, [task, inspectionPoints]);
+
+  const completedPointIds = useMemo(() => {
+    return new Set(taskRecords.map((r) => r.point_id));
+  }, [taskRecords]);
+
+  const completedCount = completedPointIds.size;
+  const totalCount = taskPoints.length;
+  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  const getEditState = (pointId: string): PointEditState => {
+    return editStates[pointId] || { remark: '', photos: [] };
+  };
+
+  const setEditState = (pointId: string, updates: Partial<PointEditState>) => {
+    setEditStates((prev) => ({
+      ...prev,
+      [pointId]: { ...getEditState(pointId), ...updates },
+    }));
+  };
+
+  const handleAddPhoto = (pointId: string) => {
+    const current = getEditState(pointId);
+    const randomPhoto = MOCK_PHOTOS[Math.floor(Math.random() * MOCK_PHOTOS.length)];
+    setEditState(pointId, { photos: [...current.photos, randomPhoto] });
+  };
+
+  const handleRemovePhoto = (pointId: string, index: number) => {
+    const current = getEditState(pointId);
+    setEditState(pointId, {
+      photos: current.photos.filter((_, i) => i !== index),
+    });
+  };
+
+  const handleSavePoint = (point: InspectionPoint) => {
+    if (!task) return;
+
+    const editState = getEditState(point.id);
+    const inspector = users.find((u) => u.id === task.assignee_id);
+
+    addInspectionRecord({
+      task_id: task.id,
+      point_id: point.id,
+      point_name: point.name,
+      inspector_id: task.assignee_id,
+      inspector_name: inspector?.name || task.assignee_name,
+      status: 'normal',
+      remark: editState.remark || undefined,
+      photos: editState.photos.length > 0 ? editState.photos : undefined,
+      inspect_time: formatDateTime(new Date()),
+    });
+
+    setEditStates((prev) => {
+      const next = { ...prev };
+      delete next[point.id];
+      return next;
+    });
+    setExpandedPointId(null);
+  };
+
+  const handleToggleExpand = (pointId: string) => {
+    if (completedPointIds.has(pointId)) return;
+    setExpandedPointId(expandedPointId === pointId ? null : pointId);
+  };
+
+  if (!open || !task) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-800">执行巡检任务</h3>
+            <p className="text-sm text-slate-500 mt-0.5">{task.title}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <Building2 size={16} className="text-slate-400" />
+              <span className="text-sm text-slate-700">{task.building_name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <User size={16} className="text-slate-400" />
+              <span className="text-sm text-slate-700">{task.assignee_name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar size={16} className="text-slate-400" />
+              <span className="text-sm text-slate-700">截止 {formatDate(task.end_date)}</span>
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-sm mb-1.5">
+              <span className="text-slate-600">巡检进度</span>
+              <span className="font-semibold text-slate-800">
+                {completedCount} / {totalCount} ({progressPercent}%)
+              </span>
+            </div>
+            <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all duration-300',
+                  progressPercent === 100 ? 'bg-emerald-500' : 'bg-sky-500'
+                )}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+          {taskPoints.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <MapPin size={32} className="mb-2" />
+              <p className="text-sm">该任务暂无巡检点位</p>
+            </div>
+          ) : (
+            taskPoints.map((point) => {
+              const isCompleted = completedPointIds.has(point.id);
+              const isExpanded = expandedPointId === point.id;
+              const record = taskRecords.find((r) => r.point_id === point.id);
+              const editState = getEditState(point.id);
+
+              return (
+                <div
+                  key={point.id}
+                  className={cn(
+                    'border rounded-xl overflow-hidden transition-all',
+                    isCompleted
+                      ? 'border-emerald-200 bg-emerald-50/40'
+                      : isExpanded
+                      ? 'border-sky-300 shadow-md border-2'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  )}
+                >
+                  <div
+                    onClick={() => handleToggleExpand(point.id)}
+                    className={cn(
+                      'flex items-center gap-3 p-4',
+                      !isCompleted && 'cursor-pointer'
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all',
+                        isCompleted
+                          ? 'bg-emerald-500 border-emerald-500'
+                          : 'border-slate-300 bg-white'
+                      )}
+                    >
+                      {isCompleted && <Check size={14} className="text-white" strokeWidth={3} />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4
+                          className={cn(
+                            'font-medium text-base',
+                            isCompleted ? 'text-emerald-700' : 'text-slate-800'
+                          )}
+                        >
+                          {point.name}
+                        </h4>
+                        {isCompleted && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                            已完成
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <MapPin size={12} />
+                          {point.floor}
+                        </span>
+                        {record?.inspect_time && (
+                          <span className="flex items-center gap-1">
+                            <Clock size={12} />
+                            {record.inspect_time}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {!isCompleted && (
+                      <ChevronDown
+                        size={18}
+                        className={cn(
+                          'text-slate-400 transition-transform',
+                          isExpanded && 'rotate-180'
+                        )}
+                      />
+                    )}
+                  </div>
+
+                  {isCompleted && record && (
+                    <div className="px-4 pb-4 pt-0 space-y-2">
+                      {record.remark && (
+                        <div className="bg-white rounded-lg p-3 border border-emerald-100">
+                          <p className="text-xs text-slate-500 mb-1">巡检备注</p>
+                          <p className="text-sm text-slate-700">{record.remark}</p>
+                        </div>
+                      )}
+                      {record.photos && record.photos.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1.5">巡检照片</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {record.photos.map((photo, idx) => (
+                              <img
+                                key={idx}
+                                src={photo}
+                                alt={`巡检照片 ${idx + 1}`}
+                                className="w-20 h-20 rounded-lg object-cover border border-emerald-100"
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {isExpanded && !isCompleted && (
+                    <div className="px-4 pb-4 pt-0 space-y-3 border-t border-slate-100 mt-0">
+                      <div className="pt-3">
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                          巡检备注
+                        </label>
+                        <textarea
+                          value={editState.remark}
+                          onChange={(e) => setEditState(point.id, { remark: e.target.value })}
+                          rows={3}
+                          placeholder="请输入巡检情况备注..."
+                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all resize-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                          巡检照片
+                        </label>
+                        <div className="flex gap-2 flex-wrap">
+                          {editState.photos.map((photo, idx) => (
+                            <div
+                              key={idx}
+                              className="relative w-20 h-20 rounded-lg overflow-hidden border border-slate-200"
+                            >
+                              <img
+                                src={photo}
+                                alt={`照片 ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePhoto(point.id, idx)}
+                                className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => handleAddPhoto(point.id)}
+                            className="w-20 h-20 rounded-lg border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-sky-400 hover:text-sky-500 transition-colors bg-slate-50"
+                          >
+                            <ImagePlus size={20} />
+                            <span className="text-xs">添加照片</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedPointId(null);
+                            setEditStates((prev) => {
+                              const next = { ...prev };
+                              delete next[point.id];
+                              return next;
+                            });
+                          }}
+                          className="px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSavePoint(point)}
+                          className="px-4 py-1.5 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors flex items-center gap-1.5"
+                        >
+                          <Save size={14} />
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+          <button
+            onClick={onClose}
+            className={cn(
+              'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
+              progressPercent === 100
+                ? 'text-white bg-emerald-500 hover:bg-emerald-600'
+                : 'text-white bg-sky-500 hover:bg-sky-600'
+            )}
+          >
+            {progressPercent === 100 ? '完成任务' : '关闭'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function KanbanView({
   filteredTasks,
   onTaskClick,
@@ -497,10 +927,17 @@ function ListView({
 }
 
 export default function Inspections() {
+  const {
+    inspectionTasks,
+    buildings,
+    users,
+  } = useAppStore();
+
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [filterBuilding, setFilterBuilding] = useState('');
   const [filterAssignee, setFilterAssignee] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [executeTask, setExecuteTask] = useState<InspectionTask | null>(null);
 
   const filteredTasks = useMemo(() => {
     return inspectionTasks.filter((task) => {
@@ -508,12 +945,15 @@ export default function Inspections() {
       if (filterAssignee && task.assignee_id !== filterAssignee) return false;
       return true;
     });
-  }, [filterBuilding, filterAssignee]);
+  }, [inspectionTasks, filterBuilding, filterAssignee]);
 
-  const inspectors = users.filter((u) => u.role === UserRole.INSPECTOR);
+  const inspectors = useMemo(
+    () => users.filter((u) => u.role === UserRole.INSPECTOR),
+    [users]
+  );
 
   const handleTaskClick = (task: InspectionTask) => {
-    console.log('Task clicked:', task);
+    setExecuteTask(task);
   };
 
   return (
@@ -612,6 +1052,11 @@ export default function Inspections() {
       </div>
 
       <CreateTaskModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
+      <ExecuteModal
+        open={!!executeTask}
+        task={executeTask}
+        onClose={() => setExecuteTask(null)}
+      />
     </div>
   );
 }

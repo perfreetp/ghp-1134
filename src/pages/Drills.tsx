@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   CalendarDays,
   Plus,
@@ -62,8 +62,14 @@ const FILE_LIST = [
   { name: '演练总结报告.pdf', size: '1.5 MB' },
 ];
 
+interface CommentEditState {
+  summary: string;
+  issues: string;
+  suggestions: string;
+}
+
 export default function Drills() {
-  const { drills, departments, getDrillAttendances, addDrill } = useAppStore();
+  const { drills, departments, getDrillAttendances, addDrill, updateDrillComment } = useAppStore();
   const [typeFilter, setTypeFilter] = useState<DrillType | 'all'>('all');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
@@ -80,6 +86,52 @@ export default function Drills() {
     content: '',
     expectedCount: 50,
   });
+
+  const [commentEdits, setCommentEdits] = useState<Record<string, CommentEditState>>({});
+  const [saveSuccess, setSaveSuccess] = useState<Record<string, boolean>>({});
+
+  const handleCommentFieldChange = (drillId: string, field: keyof CommentEditState, value: string) => {
+    setCommentEdits((prev) => ({
+      ...prev,
+      [drillId]: {
+        ...(prev[drillId] || { summary: '', issues: '', suggestions: '' }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleSaveComment = (drillId: string) => {
+    const edit = commentEdits[drillId];
+    if (!edit) return;
+    const summary = edit.summary;
+    const comment = `${edit.issues}|||${edit.suggestions}`;
+    updateDrillComment(drillId, { summary, comment });
+    setSaveSuccess((prev) => ({ ...prev, [drillId]: true }));
+    setTimeout(() => {
+      setSaveSuccess((prev) => ({ ...prev, [drillId]: false }));
+    }, 1500);
+  };
+
+  useEffect(() => {
+    if (!expandedId || detailTab !== 'comment') return;
+    const drill = drills.find((d) => d.id === expandedId);
+    if (!drill || commentEdits[drill.id]) return;
+    let issues = '';
+    let suggestions = '';
+    if (drill.comment) {
+      const parts = drill.comment.split('|||');
+      issues = parts[0] || '';
+      suggestions = parts[1] || '';
+    }
+    setCommentEdits((prev) => ({
+      ...prev,
+      [drill.id]: {
+        summary: drill.summary || '',
+        issues,
+        suggestions,
+      },
+    }));
+  }, [expandedId, detailTab, drills, commentEdits]);
 
   const filteredDrills = useMemo(() => {
     return drills.filter((d) => {
@@ -204,6 +256,8 @@ export default function Drills() {
               : 0;
             const isExpanded = expandedId === drill.id;
             const attendances = getDrillAttendances(drill.id);
+            const currentEdit = commentEdits[drill.id] || { summary: '', issues: '', suggestions: '' };
+            const isSaveSuccess = saveSuccess[drill.id] || false;
 
             return (
               <div key={drill.id} className="relative pl-20">
@@ -376,34 +430,50 @@ export default function Drills() {
 
                         {detailTab === 'comment' && (
                           <div className="space-y-5">
+                            {isSaveSuccess && (
+                              <div className="flex items-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-200 animate-fade-in">
+                                <CheckCircle2 className="w-5 h-5" />
+                                <span className="font-medium">保存成功</span>
+                              </div>
+                            )}
                             <div>
                               <label className="block text-sm font-medium text-slate-700 mb-2">演练总结</label>
                               <textarea
-                                readOnly
-                                value={drill.summary ?? ''}
-                                rows={4}
-                                placeholder="暂无总结内容"
-                                className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg resize-none bg-slate-50 focus:outline-none"
+                                value={currentEdit.summary}
+                                onChange={(e) => handleCommentFieldChange(drill.id, 'summary', e.target.value)}
+                                rows={5}
+                                placeholder="请输入本次演练的整体总结..."
+                                className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                               />
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-slate-700 mb-2">问题记录</label>
                               <textarea
-                                readOnly
-                                value={drill.comment ?? ''}
-                                rows={3}
-                                placeholder="暂无问题记录"
-                                className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg resize-none bg-slate-50 focus:outline-none"
+                                value={currentEdit.issues}
+                                onChange={(e) => handleCommentFieldChange(drill.id, 'issues', e.target.value)}
+                                rows={5}
+                                placeholder="请记录演练过程中发现的问题..."
+                                className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                               />
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-slate-700 mb-2">改进建议</label>
                               <textarea
-                                readOnly
-                                rows={3}
-                                placeholder="暂无改进建议"
-                                className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg resize-none bg-slate-50 focus:outline-none"
+                                value={currentEdit.suggestions}
+                                onChange={(e) => handleCommentFieldChange(drill.id, 'suggestions', e.target.value)}
+                                rows={5}
+                                placeholder="请输入后续改进建议..."
+                                className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                               />
+                            </div>
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => handleSaveComment(drill.id)}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors shadow-sm"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                保存
+                              </button>
                             </div>
                           </div>
                         )}

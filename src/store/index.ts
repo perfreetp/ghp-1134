@@ -78,6 +78,36 @@ interface HazardLevelDistributionItem {
   color: string;
 }
 
+const PERSIST_KEY = 'fire-inspection-store-v1';
+
+interface PersistState {
+  inspectionTasks: InspectionTask[];
+  inspectionRecords: InspectionRecord[];
+  hazards: Hazard[];
+  hazardRectifies: HazardRectify[];
+  drills: Drill[];
+  drillAttendances: DrillAttendance[];
+  equipment: Equipment[];
+  equipments: Equipment[];
+  changeLogs: ChangeLog[];
+}
+
+const loadPersisted = (): Partial<PersistState> => {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+};
+
+const persistState = (state: PersistState) => {
+  try {
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(state));
+  } catch {}
+};
+
 interface AppStore {
   buildings: Building[];
   inspectionPoints: InspectionPoint[];
@@ -114,12 +144,24 @@ interface AppStore {
   getEquipmentStatusDistribution: () => EquipmentStatusDistributionItem[];
   getTodoItems: () => TodoGroups;
   refreshData: () => void;
+  resetAllData: () => void;
   getMonthlyReports: (months?: number) => MonthlyReport[];
   getHazardLevelDistribution: () => HazardLevelDistributionItem[];
   getMaintenancesByEquipmentId: (equipmentId: string) => EquipmentMaintenance[];
   updateEquipmentCheckCycle: (category: EquipmentCategory | string, cycle: CheckCycle) => void;
   addChangeLog: (log: Omit<ChangeLog, 'id' | 'operated_at'>) => void;
   addDrill: (drill: Omit<Drill, 'id' | 'created_at'>) => void;
+
+  createInspectionTask: (data: Omit<InspectionTask, 'id' | 'created_at' | 'status' | 'progress'>) => void;
+  addInspectionRecord: (record: Omit<InspectionRecord, 'id'>) => void;
+  updateTaskStatus: (taskId: string, status: TaskStatus) => void;
+
+  registerHazard: (data: Omit<Hazard, 'id' | 'status' | 'created_at'>) => void;
+  assignHazard: (hazardId: string, data: Pick<Hazard, 'responsible_dept' | 'responsible_person' | 'deadline'>) => void;
+  submitHazardRectify: (rectify: Omit<HazardRectify, 'id' | 'status' | 'submit_time'>) => void;
+  reviewHazard: (hazardId: string, passed: boolean, reviewer: string, reviewRemark?: string) => void;
+
+  updateDrillComment: (drillId: string, data: { summary: string; comment: string }) => void;
 
   getStatistics: () => Statistics;
   getTrendData: (days?: number) => TrendData[];
@@ -140,6 +182,14 @@ const formatDate = (date: Date): string => {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+};
+
+const formatDateTime = (date: Date): string => {
+  const d = formatDate(date);
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${d} ${hh}:${mm}:${ss}`;
 };
 
 const isSameMonth = (date: Date, year: number, month: number): boolean => {
@@ -202,8 +252,8 @@ const addMonths = (dateStr: string, months: number): string => {
   return formatDate(date);
 };
 
-const generateId = (): string => {
-  return `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const generateId = (prefix = 'id'): string => {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 7)}`;
 };
 
 const mockChangeLogs: ChangeLog[] = [
@@ -227,54 +277,46 @@ const mockChangeLogs: ChangeLog[] = [
     operator: '陈海涛',
     operated_at: '2026-06-01 16:45:00',
   },
-  {
-    id: 'cl_003',
-    target_type: 'equipment',
-    target_id: 'eq_008',
-    field: 'status',
-    old_value: 'normal',
-    new_value: 'maintenance',
-    operator: '马小龙',
-    operated_at: '2026-05-15 10:20:00',
-  },
-  {
-    id: 'cl_004',
-    target_type: 'building',
-    target_id: 'bld_010',
-    field: 'point_count',
-    old_value: '6',
-    new_value: '7',
-    operator: '周美玲',
-    operated_at: '2026-06-05 14:00:00',
-  },
-  {
-    id: 'cl_005',
-    target_type: 'hazard',
-    target_id: 'hz_009',
-    field: 'status',
-    old_value: 'assigned',
-    new_value: 'rectifying',
-    operator: '王志强',
-    operated_at: '2026-06-06 09:15:00',
-  },
 ];
+
+const persisted = loadPersisted();
+
+const stateKeysToPersist: (keyof PersistState)[] = [
+  'inspectionTasks',
+  'inspectionRecords',
+  'hazards',
+  'hazardRectifies',
+  'drills',
+  'drillAttendances',
+  'equipment',
+  'equipments',
+  'changeLogs',
+];
+
+const doPersist = (state: PersistState) => {
+  const toSave: any = {};
+  stateKeysToPersist.forEach((key) => {
+    toSave[key] = (state as any)[key];
+  });
+  persistState(toSave);
+};
 
 export const useAppStore = create<AppStore>((set, get) => ({
   buildings,
   inspectionPoints,
-  equipment: equipments,
-  equipments,
+  equipment: persisted.equipment || equipments,
+  equipments: persisted.equipments || equipments,
   maintenanceRecords: equipmentMaintenances,
   equipmentMaintenances,
-  inspectionTasks,
-  inspectionRecords,
-  hazards,
-  hazardRectifies,
-  drills,
-  drillAttendances,
+  inspectionTasks: persisted.inspectionTasks || inspectionTasks,
+  inspectionRecords: persisted.inspectionRecords || inspectionRecords,
+  hazards: persisted.hazards || hazards,
+  hazardRectifies: persisted.hazardRectifies || hazardRectifies,
+  drills: persisted.drills || drills,
+  drillAttendances: persisted.drillAttendances || drillAttendances,
   users,
   departments,
-  changeLogs: mockChangeLogs,
+  changeLogs: persisted.changeLogs || mockChangeLogs,
 
   filters: {},
 
@@ -373,18 +415,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       buildings: [...buildings],
       inspectionPoints: [...inspectionPoints],
-      equipment: [...equipments],
-      equipments: [...equipments],
-      maintenanceRecords: [...equipmentMaintenances],
-      equipmentMaintenances: [...equipmentMaintenances],
+    });
+  },
+
+  resetAllData: () => {
+    localStorage.removeItem(PERSIST_KEY);
+    set({
       inspectionTasks: [...inspectionTasks],
       inspectionRecords: [...inspectionRecords],
       hazards: [...hazards],
       hazardRectifies: [...hazardRectifies],
       drills: [...drills],
       drillAttendances: [...drillAttendances],
-      users: [...users],
-      departments: [...departments],
+      equipment: [...equipments],
+      equipments: [...equipments],
       changeLogs: [...mockChangeLogs],
     });
   },
@@ -827,52 +871,360 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   updateEquipmentCheckCycle: (category, cycle) => {
     const months = getCycleMonths(cycle);
-    set((state) => ({
-      equipment: state.equipment.map((eq) => {
+    set((state) => {
+      const newEquipment = state.equipment.map((eq) => {
         if (eq.category === category) {
           const newNextCheck = addMonths(eq.last_check_date, months);
           return { ...eq, check_cycle: cycle, next_check_date: newNextCheck };
         }
         return eq;
-      }),
-      equipments: state.equipments.map((eq) => {
-        if (eq.category === category) {
-          const newNextCheck = addMonths(eq.last_check_date, months);
-          return { ...eq, check_cycle: cycle, next_check_date: newNextCheck };
-        }
-        return eq;
-      }),
-    }));
+      });
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: newEquipment,
+        equipments: newEquipment,
+        changeLogs: state.changeLogs,
+      });
+      return {
+        equipment: newEquipment,
+        equipments: newEquipment,
+      };
+    });
   },
 
   addChangeLog: (log) => {
-    set((state) => ({
-      changeLogs: [
+    set((state) => {
+      const newLogs = [
         {
           ...log,
-          id: generateId(),
-          operated_at: new Date()
-            .toLocaleString('zh-CN', { hour12: false })
-            .replace(/\//g, '-'),
+          id: generateId('cl'),
+          operated_at: formatDateTime(new Date()),
         },
         ...state.changeLogs,
-      ],
-    }));
+      ];
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: newLogs,
+      });
+      return { changeLogs: newLogs };
+    });
   },
 
   addDrill: (drill) => {
-    set((state) => ({
-      drills: [
+    set((state) => {
+      const newDrills = [
         {
           ...drill,
-          id: `drill_${String(state.drills.length + 1).padStart(3, '0')}`,
-          created_at: new Date()
-            .toLocaleString('zh-CN', { hour12: false })
-            .replace(/\//g, '-'),
-        },
+          id: generateId('drill'),
+          created_at: formatDateTime(new Date()),
+          actual_count: drill.expected_count || 0,
+        } as Drill,
         ...state.drills,
-      ],
-    }));
+      ];
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: newDrills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { drills: newDrills };
+    });
+  },
+
+  createInspectionTask: (data) => {
+    set((state) => {
+      const building = state.buildings.find((b) => b.id === data.building_id);
+      const assignee = state.users.find((u) => u.id === data.assignee_id);
+      const creator = state.users.find((u) => u.id === data.creator_id);
+      const newTask: InspectionTask = {
+        ...data,
+        id: generateId('task'),
+        status: TaskStatusEnum.PENDING,
+        progress: 0,
+        building_name: building?.name || '未命名楼栋',
+        assignee_name: assignee?.name || '未指定',
+        creator_name: creator?.name || '系统',
+        created_at: formatDateTime(new Date()),
+      };
+      const newTasks = [newTask, ...state.inspectionTasks];
+      doPersist({
+        inspectionTasks: newTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { inspectionTasks: newTasks };
+    });
+  },
+
+  addInspectionRecord: (record) => {
+    set((state) => {
+      const newRecord: InspectionRecord = {
+        ...record,
+        id: generateId('rec'),
+      };
+      const newRecords = [newRecord, ...state.inspectionRecords];
+
+      const task = state.inspectionTasks.find((t) => t.id === record.task_id);
+      let newTasks = state.inspectionTasks;
+      if (task) {
+        const totalPoints = task.point_ids.length;
+        const donePoints = new Set(
+          newRecords.filter((r) => r.task_id === task.id).map((r) => r.point_id)
+        ).size;
+        const progress = Math.round((donePoints / Math.max(totalPoints, 1)) * 100);
+        const newStatus: TaskStatus =
+          progress >= 100
+            ? TaskStatusEnum.COMPLETED
+            : donePoints > 0
+              ? TaskStatusEnum.IN_PROGRESS
+              : task.status;
+
+        newTasks = state.inspectionTasks.map((t) =>
+          t.id === task.id
+            ? { ...t, progress, status: newStatus }
+            : t
+        );
+      }
+
+      doPersist({
+        inspectionTasks: newTasks,
+        inspectionRecords: newRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return {
+        inspectionRecords: newRecords,
+        inspectionTasks: newTasks,
+      };
+    });
+  },
+
+  updateTaskStatus: (taskId, status) => {
+    set((state) => {
+      const newTasks = state.inspectionTasks.map((t) =>
+        t.id === taskId ? { ...t, status } : t
+      );
+      doPersist({
+        inspectionTasks: newTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { inspectionTasks: newTasks };
+    });
+  },
+
+  registerHazard: (data) => {
+    set((state) => {
+      const building = state.buildings.find((b) => b.id === data.building_id);
+      const reporter = state.users.find((u) => u.id === data.reporter_id);
+      const point = state.inspectionPoints.find((p) => p.id === data.point_id);
+      const newHazard: Hazard = {
+        ...data,
+        id: generateId('hz'),
+        status: HazardStatusEnum.REGISTERED,
+        building_name: building?.name || '未命名楼栋',
+        point_name: point?.name || '未命名点位',
+        reporter_name: reporter?.name || '系统',
+        created_at: formatDateTime(new Date()),
+      };
+      const newHazards = [newHazard, ...state.hazards];
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: newHazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { hazards: newHazards };
+    });
+  },
+
+  assignHazard: (hazardId, data) => {
+    set((state) => {
+      const newHazards = state.hazards.map((h) =>
+        h.id === hazardId
+          ? {
+              ...h,
+              status: HazardStatusEnum.ASSIGNED,
+              responsible_dept: data.responsible_dept,
+              responsible_person: data.responsible_person,
+              deadline: data.deadline,
+            }
+          : h
+      );
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: newHazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { hazards: newHazards };
+    });
+  },
+
+  submitHazardRectify: (rectify) => {
+    set((state) => {
+      const newRectify: HazardRectify = {
+        ...rectify,
+        id: generateId('rect'),
+        status: 'submitted',
+        submit_time: formatDateTime(new Date()),
+      };
+      const newRectifies = [newRectify, ...state.hazardRectifies];
+      const newHazards = state.hazards.map((h) =>
+        h.id === rectify.hazard_id
+          ? { ...h, status: HazardStatusEnum.PENDING_REVIEW }
+          : h
+      );
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: newHazards,
+        hazardRectifies: newRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return {
+        hazards: newHazards,
+        hazardRectifies: newRectifies,
+      };
+    });
+  },
+
+  reviewHazard: (hazardId, passed, reviewer, reviewRemark) => {
+    set((state) => {
+      let newHazards = state.hazards;
+      let newRectifies = state.hazardRectifies;
+
+      if (passed) {
+        newHazards = state.hazards.map((h) =>
+          h.id === hazardId
+            ? {
+                ...h,
+                status: HazardStatusEnum.CLOSED,
+                closed_at: formatDateTime(new Date()),
+              }
+            : h
+        );
+        newRectifies = state.hazardRectifies.map((r) =>
+          r.hazard_id === hazardId && r.status === 'submitted'
+            ? {
+                ...r,
+                status: 'passed',
+                review_time: formatDateTime(new Date()),
+                reviewer,
+                remark: reviewRemark || r.remark,
+              }
+            : r
+        );
+      } else {
+        newHazards = state.hazards.map((h) =>
+          h.id === hazardId
+            ? { ...h, status: HazardStatusEnum.RECTIFYING }
+            : h
+        );
+        newRectifies = state.hazardRectifies.map((r) =>
+          r.hazard_id === hazardId && r.status === 'submitted'
+            ? {
+                ...r,
+                status: 'rejected',
+                review_time: formatDateTime(new Date()),
+                reviewer,
+                remark: reviewRemark || r.remark,
+              }
+            : r
+        );
+      }
+
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: newHazards,
+        hazardRectifies: newRectifies,
+        drills: state.drills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return {
+        hazards: newHazards,
+        hazardRectifies: newRectifies,
+      };
+    });
+  },
+
+  updateDrillComment: (drillId, data) => {
+    set((state) => {
+      const newDrills = state.drills.map((d) =>
+        d.id === drillId
+          ? {
+              ...d,
+              summary: data.summary,
+              comment: data.comment,
+              actual_time: d.actual_time || formatDateTime(new Date()),
+            }
+          : d
+      );
+      doPersist({
+        inspectionTasks: state.inspectionTasks,
+        inspectionRecords: state.inspectionRecords,
+        hazards: state.hazards,
+        hazardRectifies: state.hazardRectifies,
+        drills: newDrills,
+        drillAttendances: state.drillAttendances,
+        equipment: state.equipment,
+        equipments: state.equipments,
+        changeLogs: state.changeLogs,
+      });
+      return { drills: newDrills };
+    });
   },
 }));
 

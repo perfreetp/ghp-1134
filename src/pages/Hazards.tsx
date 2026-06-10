@@ -15,7 +15,6 @@ import {
   Info,
   ShieldAlert,
   Image as ImageIcon,
-  ChevronRight,
   Send,
   FileCheck,
   SearchCheck,
@@ -25,10 +24,10 @@ import {
   Hammer,
   Eye,
   CircleDot,
+  Upload,
+  Trash2,
 } from 'lucide-react';
-import { hazards, hazardRectifies } from '@/data/hazards';
-import { departments, users } from '@/data/users';
-import { buildings } from '@/data/buildings';
+import { useAppStore } from '@/store';
 import type { Hazard, HazardRectify } from '@/types';
 import { HazardLevel, HazardStatus, HazardLevelLabels, HazardStatusLabels } from '@/types';
 import {
@@ -39,7 +38,6 @@ import {
   getAvatarColor,
   getInitials,
   getStatusColor,
-  truncateText,
 } from '@/utils';
 
 const levelFilters: {
@@ -87,8 +85,8 @@ function getActionButtons(status: HazardStatus) {
       return [{ key: 'submit', label: '提交整改', icon: FileCheck, variant: 'primary' as const }];
     case HazardStatus.PENDING_REVIEW:
       return [
-        { key: 'review', label: '复查', icon: SearchCheck, variant: 'primary' as const },
-        { key: 'reject', label: '驳回', icon: X, variant: 'secondary' as const },
+        { key: 'review', label: '复查通过', icon: Check, variant: 'success' as const },
+        { key: 'reject', label: '驳回', icon: X, variant: 'danger' as const },
       ];
     case HazardStatus.CLOSED:
       return [{ key: 'view', label: '查看', icon: Eye, variant: 'secondary' as const }];
@@ -116,6 +114,64 @@ function LevelBadge({ level, size = 'md' }: { level: HazardLevel; size?: 'sm' | 
   );
 }
 
+function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 shrink-0">
+      <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
+      <button
+        onClick={onClose}
+        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+      >
+        <X size={20} />
+      </button>
+    </div>
+  );
+}
+
+function ModalFooter({
+  onCancel,
+  onConfirm,
+  confirmText = '确认',
+  confirmDisabled = false,
+  confirmVariant = 'primary',
+  cancelText = '取消',
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmText?: string;
+  confirmDisabled?: boolean;
+  confirmVariant?: 'primary' | 'success' | 'danger';
+  cancelText?: string;
+}) {
+  const variantClass = {
+    primary: 'bg-sky-500 hover:bg-sky-600',
+    success: 'bg-emerald-500 hover:bg-emerald-600',
+    danger: 'bg-red-500 hover:bg-red-600',
+  }[confirmVariant];
+
+  return (
+    <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50 shrink-0">
+      <button
+        onClick={onCancel}
+        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+      >
+        {cancelText}
+      </button>
+      <button
+        onClick={onConfirm}
+        disabled={confirmDisabled}
+        className={cn(
+          'px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors',
+          variantClass,
+          confirmDisabled && 'opacity-50 cursor-not-allowed'
+        )}
+      >
+        {confirmText}
+      </button>
+    </div>
+  );
+}
+
 function HazardCard({
   hazard,
   onAction,
@@ -128,6 +184,19 @@ function HazardCard({
   const overdue = isOverdue(hazard.deadline);
   const progress = getProgressByStatus(hazard.status);
   const actions = getActionButtons(hazard.status);
+
+  const getVariantClass = (variant: string) => {
+    switch (variant) {
+      case 'primary':
+        return 'bg-sky-500 text-white hover:bg-sky-600';
+      case 'success':
+        return 'bg-emerald-500 text-white hover:bg-emerald-600';
+      case 'danger':
+        return 'bg-red-500 text-white hover:bg-red-600';
+      default:
+        return 'bg-slate-100 text-slate-700 hover:bg-slate-200';
+    }
+  };
 
   return (
     <div
@@ -175,11 +244,11 @@ function HazardCard({
         <div className="flex items-center gap-4 text-sm">
           <div className="flex items-center gap-1.5 text-slate-600">
             <Building2 size={14} className="shrink-0 text-slate-400" />
-            <span>{hazard.responsible_dept}</span>
+            <span>{hazard.responsible_dept || '待指定'}</span>
           </div>
           <div className="flex items-center gap-1.5 text-slate-600">
             <UserCheck size={14} className="shrink-0 text-slate-400" />
-            <span>{hazard.responsible_person}</span>
+            <span>{hazard.responsible_person || '待指定'}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Calendar size={14} className={cn('shrink-0', overdue ? 'text-red-500' : 'text-slate-400')} />
@@ -214,7 +283,7 @@ function HazardCard({
           />
         </div>
 
-        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
           {actions.map((action) => (
             <button
               key={action.key}
@@ -224,9 +293,7 @@ function HazardCard({
               }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-                action.variant === 'primary'
-                  ? 'bg-sky-500 text-white hover:bg-sky-600'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                getVariantClass(action.variant)
               )}
             >
               <action.icon size={14} />
@@ -239,16 +306,650 @@ function HazardCard({
   );
 }
 
-function HazardDetailModal({
+function RegisterModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const {
+    buildings,
+    users,
+    departments,
+    getPointsByBuildingId,
+    registerHazard,
+  } = useAppStore();
+
+  const [title, setTitle] = useState('');
+  const [level, setLevel] = useState<HazardLevel>(HazardLevel.GENERAL);
+  const [buildingId, setBuildingId] = useState('');
+  const [pointId, setPointId] = useState('');
+  const [description, setDescription] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [dept, setDept] = useState('');
+  const [personName, setPersonName] = useState('');
+  const [deadline, setDeadline] = useState('');
+
+  const points = useMemo(() => {
+    if (!buildingId) return [];
+    return getPointsByBuildingId(buildingId);
+  }, [buildingId, getPointsByBuildingId]);
+
+  const filteredUsers = useMemo(() => {
+    if (!dept) return users;
+    return users.filter((u) => u.department === dept);
+  }, [users, dept]);
+
+  const resetForm = () => {
+    setTitle('');
+    setLevel(HazardLevel.GENERAL);
+    setBuildingId('');
+    setPointId('');
+    setDescription('');
+    setPhotos([]);
+    setDept('');
+    setPersonName('');
+    setDeadline('');
+  };
+
+  const handleSimulatePhoto = () => {
+    const newPhoto = `https://picsum.photos/400/300?random=${Date.now()}`;
+    setPhotos([...photos, newPhoto]);
+  };
+
+  const removePhoto = (idx: number) => {
+    setPhotos(photos.filter((_, i) => i !== idx));
+  };
+
+  const canSubmit = title && buildingId && pointId && description && dept && personName && deadline;
+
+  const handleSubmit = () => {
+    if (!canSubmit) return;
+    const reporter = users.find((u) => u.role === 'safety_manager') || users[0];
+    registerHazard({
+      title,
+      description,
+      level,
+      building_id: buildingId,
+      building_name: buildings.find((b) => b.id === buildingId)?.name || '',
+      point_id: pointId,
+      point_name: points.find((p) => p.id === pointId)?.name || '',
+      reporter_id: reporter?.id || '',
+      reporter_name: reporter?.name || '',
+      photos,
+      responsible_dept: dept,
+      responsible_person: personName,
+      deadline,
+    });
+    resetForm();
+    onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-hidden flex flex-col">
+        <ModalHeader title="登记隐患" onClose={() => { resetForm(); onClose(); }} />
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              隐患标题 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="请简要描述隐患"
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">隐患等级</label>
+            <div className="grid grid-cols-4 gap-2">
+              {([HazardLevel.CRITICAL, HazardLevel.MAJOR, HazardLevel.GENERAL, HazardLevel.MINOR] as HazardLevel[]).map((lv) => {
+                const config = levelFilters.find((f) => f.key === lv)!;
+                const Icon = config.icon;
+                return (
+                  <button
+                    key={lv}
+                    type="button"
+                    onClick={() => setLevel(lv)}
+                    className={cn(
+                      'flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all',
+                      level === lv
+                        ? `${config.bg} ${config.text} ${config.border} ring-2 ring-offset-1 ring-sky-200`
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                    )}
+                  >
+                    <Icon size={15} />
+                    {HazardLevelLabels[lv]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                所属楼栋 <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={buildingId}
+                  onChange={(e) => {
+                    setBuildingId(e.target.value);
+                    setPointId('');
+                  }}
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
+                >
+                  <option value="">请选择楼栋</option>
+                  {buildings.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={16}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                具体点位 <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={pointId}
+                  onChange={(e) => setPointId(e.target.value)}
+                  disabled={!buildingId}
+                  className={cn(
+                    'w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white',
+                    !buildingId && 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                  )}
+                >
+                  <option value="">请选择点位</option>
+                  {points.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.location})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={16}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              详细描述 <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              placeholder="请详细描述隐患情况..."
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all resize-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              现场照片（模拟上传）
+            </label>
+            <div className="flex flex-wrap gap-3">
+              {photos.map((photo, idx) => (
+                <div key={idx} className="relative w-24 h-24 rounded-lg overflow-hidden border border-slate-200 group">
+                  <img src={photo} alt="" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => removePhoto(idx)}
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={handleSimulatePhoto}
+                className="w-24 h-24 rounded-lg border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:border-sky-400 hover:text-sky-500 transition-colors gap-1"
+              >
+                <Upload size={20} />
+                <span className="text-xs">添加照片</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                责任部门 <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={dept}
+                  onChange={(e) => {
+                    setDept(e.target.value);
+                    setPersonName('');
+                  }}
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
+                >
+                  <option value="">请选择部门</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.name}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={16}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                责任人 <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={personName}
+                  onChange={(e) => setPersonName(e.target.value)}
+                  disabled={filteredUsers.length === 0}
+                  className={cn(
+                    'w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white',
+                    filteredUsers.length === 0 && 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                  )}
+                >
+                  <option value="">请选择责任人</option>
+                  {filteredUsers.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={16}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              整改期限 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
+            />
+          </div>
+        </div>
+
+        <ModalFooter
+          onCancel={() => { resetForm(); onClose(); }}
+          onConfirm={handleSubmit}
+          confirmText="确认登记"
+          confirmDisabled={!canSubmit}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AssignModal({
+  hazard,
+  open,
+  onClose,
+}: {
+  hazard: Hazard | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { users, departments, assignHazard } = useAppStore();
+
+  const [dept, setDept] = useState('');
+  const [personName, setPersonName] = useState('');
+  const [deadline, setDeadline] = useState('');
+
+  const filteredUsers = useMemo(() => {
+    if (!dept) return users;
+    return users.filter((u) => u.department === dept);
+  }, [users, dept]);
+
+  const resetForm = () => {
+    setDept(hazard?.responsible_dept || '');
+    setPersonName(hazard?.responsible_person || '');
+    setDeadline(hazard?.deadline || '');
+  };
+
+  const handleOpen = () => {
+    if (hazard) {
+      resetForm();
+    }
+  };
+
+  const canSubmit = dept && personName && deadline;
+
+  const handleSubmit = () => {
+    if (!canSubmit || !hazard) return;
+    assignHazard(hazard.id, {
+      responsible_dept: dept,
+      responsible_person: personName,
+      deadline,
+    });
+    onClose();
+  };
+
+  if (!open || !hazard) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-hidden flex flex-col">
+        <ModalHeader title="隐患派单" onClose={onClose} />
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+            <div className="flex items-center gap-3 mb-2">
+              <LevelBadge level={hazard.level} size="sm" />
+              <h4 className="font-medium text-slate-800">{hazard.title}</h4>
+            </div>
+            <p className="text-xs text-slate-500">
+              位置：{hazard.building_name} · {hazard.point_name}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              责任部门 <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <select
+                value={dept}
+                onChange={(e) => {
+                  setDept(e.target.value);
+                  setPersonName('');
+                }}
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
+              >
+                <option value="">请选择部门</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.name}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={16}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              责任人 <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <select
+                value={personName}
+                onChange={(e) => setPersonName(e.target.value)}
+                disabled={filteredUsers.length === 0}
+                className={cn(
+                  'w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white',
+                  filteredUsers.length === 0 && 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                )}
+              >
+                <option value="">请选择责任人</option>
+                {filteredUsers.map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={16}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              整改期限 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
+            />
+          </div>
+        </div>
+
+        <ModalFooter
+          onCancel={onClose}
+          onConfirm={handleSubmit}
+          confirmText="确认派单"
+          confirmDisabled={!canSubmit}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RectifyModal({
+  hazard,
+  open,
+  onClose,
+}: {
+  hazard: Hazard | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { submitHazardRectify } = useAppStore();
+
+  const [action, setAction] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [remark, setRemark] = useState('');
+
+  const resetForm = () => {
+    setAction('');
+    setPhotos([]);
+    setRemark('');
+  };
+
+  const handleSimulatePhoto = () => {
+    const newPhoto = `https://picsum.photos/400/300?random=${Date.now()}`;
+    setPhotos([...photos, newPhoto]);
+  };
+
+  const removePhoto = (idx: number) => {
+    setPhotos(photos.filter((_, i) => i !== idx));
+  };
+
+  const canSubmit = action.trim().length > 0;
+
+  const handleSubmit = () => {
+    if (!canSubmit || !hazard) return;
+    submitHazardRectify({
+      hazard_id: hazard.id,
+      action,
+      photos,
+      remark: remark || undefined,
+    });
+    resetForm();
+    onClose();
+  };
+
+  if (!open || !hazard) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-hidden flex flex-col">
+        <ModalHeader title="提交整改" onClose={() => { resetForm(); onClose(); }} />
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
+            <div className="flex items-center gap-3 mb-2">
+              <LevelBadge level={hazard.level} size="sm" />
+              <h4 className="font-medium text-slate-800">{hazard.title}</h4>
+            </div>
+            <p className="text-xs text-slate-500 mb-1">
+              位置：{hazard.building_name} · {hazard.point_name}
+            </p>
+            <p className="text-xs text-slate-500">
+              责任人：{hazard.responsible_person} · 整改期限：{formatDate(hazard.deadline)}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              整改措施 <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              rows={5}
+              placeholder="请详细描述所采取的整改措施和处理过程..."
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all resize-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              整改后照片（模拟上传）
+            </label>
+            <div className="flex flex-wrap gap-3">
+              {photos.map((photo, idx) => (
+                <div key={idx} className="relative w-24 h-24 rounded-lg overflow-hidden border border-slate-200 group">
+                  <img src={photo} alt="" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => removePhoto(idx)}
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={handleSimulatePhoto}
+                className="w-24 h-24 rounded-lg border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 hover:border-sky-400 hover:text-sky-500 transition-colors gap-1"
+              >
+                <Upload size={20} />
+                <span className="text-xs">添加照片</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">整改说明</label>
+            <textarea
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              rows={3}
+              placeholder="可选：补充说明整改过程中的特殊情况..."
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all resize-none"
+            />
+          </div>
+        </div>
+
+        <ModalFooter
+          onCancel={() => { resetForm(); onClose(); }}
+          onConfirm={handleSubmit}
+          confirmText="提交整改"
+          confirmDisabled={!canSubmit}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RejectModal({
+  hazard,
+  open,
+  onClose,
+  onConfirm,
+}: {
+  hazard: Hazard | null;
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (remark: string) => void;
+}) {
+  const [remark, setRemark] = useState('');
+
+  const handleSubmit = () => {
+    onConfirm(remark);
+    setRemark('');
+  };
+
+  if (!open || !hazard) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+        <ModalHeader title="驳回整改" onClose={onClose} />
+
+        <div className="p-6 space-y-5">
+          <div className="bg-red-50 rounded-lg p-4 border border-red-100">
+            <div className="flex items-center gap-2 text-red-700 mb-1">
+              <AlertTriangle size={16} />
+              <span className="font-medium">即将驳回此隐患的整改申请</span>
+            </div>
+            <p className="text-xs text-red-600">{hazard.title}</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              驳回原因 <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              rows={4}
+              placeholder="请详细说明驳回原因，便于整改方重新处理..."
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all resize-none"
+            />
+          </div>
+        </div>
+
+        <ModalFooter
+          onCancel={onClose}
+          onConfirm={handleSubmit}
+          confirmText="确认驳回"
+          confirmDisabled={!remark.trim()}
+          confirmVariant="danger"
+        />
+      </div>
+    </div>
+  );
+}
+
+function DetailModal({
   hazard,
   rectifies,
   open,
   onClose,
+  onAction,
 }: {
   hazard: Hazard | null;
   rectifies: HazardRectify[];
   open: boolean;
   onClose: () => void;
+  onAction: (action: string, hazard: Hazard) => void;
 }) {
   if (!open || !hazard) return null;
 
@@ -377,7 +1078,7 @@ function HazardDetailModal({
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">责任部门</p>
-                <p className="text-sm font-medium text-slate-800">{hazard.responsible_dept}</p>
+                <p className="text-sm font-medium text-slate-800">{hazard.responsible_dept || '待指定'}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">责任人</p>
@@ -385,12 +1086,12 @@ function HazardDetailModal({
                   <div
                     className={cn(
                       'w-6 h-6 rounded-full flex items-center justify-center text-white text-xs',
-                      getAvatarColor(hazard.responsible_person)
+                      getAvatarColor(hazard.responsible_person || '待')
                     )}
                   >
-                    {getInitials(hazard.responsible_person)}
+                    {getInitials(hazard.responsible_person || '待')}
                   </div>
-                  <span className="text-sm font-medium text-slate-800">{hazard.responsible_person}</span>
+                  <span className="text-sm font-medium text-slate-800">{hazard.responsible_person || '待指定'}</span>
                 </div>
               </div>
               {hazard.closed_at && (
@@ -412,24 +1113,24 @@ function HazardDetailModal({
               整改记录
             </h4>
             <div className="bg-white border border-slate-200 rounded-xl p-5">
-              {rectifies.length > 0 ? (
-                <div className="relative pl-6">
-                  <div className="absolute left-[11px] top-1 bottom-1 w-0.5 bg-slate-200" />
-                  <div className="space-y-5">
-                    <div className="relative">
-                      <div className="absolute -left-[22px] top-1 w-4 h-4 rounded-full bg-sky-500 border-2 border-white ring-2 ring-sky-100 flex items-center justify-center">
-                        <CircleDot size={8} className="text-white" />
-                      </div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-medium text-slate-800">隐患登记</span>
-                        <span className="text-xs text-slate-400">{formatDateTime(hazard.created_at)}</span>
-                      </div>
-                      <p className="text-sm text-slate-600">
-                        由 <span className="font-medium">{hazard.reporter_name}</span> 上报并登记
-                      </p>
+              <div className="relative pl-6">
+                <div className="absolute left-[11px] top-1 bottom-1 w-0.5 bg-slate-200" />
+                <div className="space-y-5">
+                  <div className="relative">
+                    <div className="absolute -left-[22px] top-1 w-4 h-4 rounded-full bg-sky-500 border-2 border-white ring-2 ring-sky-100 flex items-center justify-center">
+                      <CircleDot size={8} className="text-white" />
                     </div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-medium text-slate-800">隐患登记</span>
+                      <span className="text-xs text-slate-400">{formatDateTime(hazard.created_at)}</span>
+                    </div>
+                    <p className="text-sm text-slate-600">
+                      由 <span className="font-medium">{hazard.reporter_name}</span> 上报并登记
+                    </p>
+                  </div>
 
-                    {rectifies.map((r, idx) => (
+                  {rectifies.length > 0 ? (
+                    rectifies.map((r, idx) => (
                       <div key={r.id} className="relative">
                         <div
                           className={cn(
@@ -473,9 +1174,18 @@ function HazardDetailModal({
                         </div>
                         <p className="text-sm text-slate-600 mb-2">{r.action}</p>
                         {r.remark && (
-                          <p className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg">
+                          <p className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg mb-2">
                             备注：{r.remark}
                           </p>
+                        )}
+                        {r.photos && r.photos.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {r.photos.map((p, pi) => (
+                              <div key={pi} className="w-16 h-16 rounded overflow-hidden border border-slate-200">
+                                <img src={p} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            ))}
+                          </div>
                         )}
                         {r.review_time && (
                           <p className="text-xs text-slate-400 mt-1.5">
@@ -483,25 +1193,27 @@ function HazardDetailModal({
                           </p>
                         )}
                       </div>
-                    ))}
-                  </div>
+                    ))
+                  ) : (
+                    <div className="relative">
+                      <div className="absolute -left-[22px] top-1 w-4 h-4 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center">
+                        <Clock3 size={8} className="text-white" />
+                      </div>
+                      <p className="text-sm text-slate-400">暂无整改记录</p>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-slate-400">
-                  <FileCheck size={32} className="mb-2 opacity-50" />
-                  <p className="text-sm">暂无整改记录</p>
-                </div>
-              )}
+              </div>
             </div>
           </div>
 
-          <div>
-            <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-              <ImageIcon size={15} className="text-sky-500" />
-              现场照片
-            </h4>
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              {hazard.photos && hazard.photos.length > 0 ? (
+          {hazard.photos && hazard.photos.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                <ImageIcon size={15} className="text-sky-500" />
+                现场照片
+              </h4>
+              <div className="bg-white border border-slate-200 rounded-xl p-5">
                 <div className="grid grid-cols-6 gap-3">
                   {hazard.photos.map((photo, idx) => (
                     <div
@@ -516,14 +1228,9 @@ function HazardDetailModal({
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-slate-400">
-                  <ImageIcon size={32} className="mb-2 opacity-50" />
-                  <p className="text-sm">暂无现场照片</p>
-                </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50 shrink-0">
@@ -534,24 +1241,36 @@ function HazardDetailModal({
             关闭
           </button>
           {hazard.status === HazardStatus.REGISTERED && (
-            <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors">
+            <button
+              onClick={() => onAction('assign', hazard)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors"
+            >
               <Send size={14} />
               派单处理
             </button>
           )}
           {(hazard.status === HazardStatus.ASSIGNED || hazard.status === HazardStatus.RECTIFYING) && (
-            <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors">
+            <button
+              onClick={() => onAction('submit', hazard)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors"
+            >
               <FileCheck size={14} />
               提交整改
             </button>
           )}
           {hazard.status === HazardStatus.PENDING_REVIEW && (
             <>
-              <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
+              <button
+                onClick={() => onAction('reject', hazard)}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+              >
                 <X size={14} />
                 驳回
               </button>
-              <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors">
+              <button
+                onClick={() => onAction('review', hazard)}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors"
+              >
                 <Check size={14} />
                 复查通过
               </button>
@@ -563,221 +1282,24 @@ function HazardDetailModal({
   );
 }
 
-function RegisterHazardModal({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [title, setTitle] = useState('');
-  const [level, setLevel] = useState<HazardLevel>(HazardLevel.GENERAL);
-  const [buildingId, setBuildingId] = useState('');
-  const [pointId, setPointId] = useState('');
-  const [description, setDescription] = useState('');
-  const [dept, setDept] = useState('');
-  const [person, setPerson] = useState('');
-  const [deadline, setDeadline] = useState('');
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h3 className="text-lg font-semibold text-slate-800">登记隐患</h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">隐患标题</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="请简要描述隐患"
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">隐患等级</label>
-            <div className="grid grid-cols-4 gap-2">
-              {([HazardLevel.CRITICAL, HazardLevel.MAJOR, HazardLevel.GENERAL, HazardLevel.MINOR] as HazardLevel[]).map((lv) => {
-                const config = levelFilters.find((f) => f.key === lv)!;
-                const Icon = config.icon;
-                return (
-                  <button
-                    key={lv}
-                    type="button"
-                    onClick={() => setLevel(lv)}
-                    className={cn(
-                      'flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all',
-                      level === lv
-                        ? `${config.bg} ${config.text} ${config.border} ring-2 ring-offset-1 ring-sky-200`
-                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                    )}
-                  >
-                    <Icon size={15} />
-                    {HazardLevelLabels[lv]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">所属楼栋</label>
-              <div className="relative">
-                <select
-                  value={buildingId}
-                  onChange={(e) => {
-                    setBuildingId(e.target.value);
-                    setPointId('');
-                  }}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
-                >
-                  <option value="">请选择楼栋</option>
-                  {buildings.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">具体点位</label>
-              <div className="relative">
-                <select
-                  value={pointId}
-                  onChange={(e) => setPointId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
-                >
-                  <option value="">请选择点位</option>
-                  {buildings
-                    .find((b) => b.id === buildingId)
-                    ?.id &&
-                    Array.from({ length: buildings.find((b) => b.id === buildingId)!.point_count }).map(
-                      (_, i) => (
-                        <option key={i} value={`pt_${String(i + 1).padStart(3, '0')}`}>
-                          点位 {i + 1}
-                        </option>
-                      )
-                    )}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">详细描述</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              placeholder="请详细描述隐患情况..."
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all resize-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">责任部门</label>
-              <div className="relative">
-                <select
-                  value={dept}
-                  onChange={(e) => setDept(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
-                >
-                  <option value="">请选择部门</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.name}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">责任人</label>
-              <div className="relative">
-                <select
-                  value={person}
-                  onChange={(e) => setPerson(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all pr-10 bg-white"
-                >
-                  <option value="">请选择责任人</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">整改期限</label>
-            <input
-              type="date"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-all"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            取消
-          </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-lg hover:bg-sky-600 transition-colors"
-          >
-            确认登记
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Hazards() {
+  const {
+    hazards,
+    hazardRectifies,
+    departments,
+    users,
+    reviewHazard,
+  } = useAppStore();
+
   const [levelFilter, setLevelFilter] = useState<HazardLevel | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<HazardStatus | 'all'>('all');
   const [deptFilter, setDeptFilter] = useState('');
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [selectedHazard, setSelectedHazard] = useState<Hazard | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showRectifyModal, setShowRectifyModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
 
   const levelCounts = useMemo(() => {
     const counts: Record<string, number> = { all: hazards.length };
@@ -785,7 +1307,7 @@ export default function Hazards() {
       counts[lv] = hazards.filter((h) => h.level === lv).length;
     });
     return counts;
-  }, []);
+  }, [hazards]);
 
   const filteredHazards = useMemo(() => {
     return hazards.filter((h) => {
@@ -794,21 +1316,59 @@ export default function Hazards() {
       if (deptFilter && h.responsible_dept !== deptFilter) return false;
       return true;
     });
-  }, [levelFilter, statusFilter, deptFilter]);
+  }, [hazards, levelFilter, statusFilter, deptFilter]);
+
+  const relatedRectifies = useMemo(() => {
+    if (!selectedHazard) return [];
+    return hazardRectifies.filter((r) => r.hazard_id === selectedHazard.id);
+  }, [selectedHazard, hazardRectifies]);
+
+  const openDetail = (hazard: Hazard) => {
+    setSelectedHazard(hazard);
+    setShowDetailModal(true);
+  };
+
+  const closeDetail = () => {
+    setShowDetailModal(false);
+    setSelectedHazard(null);
+  };
 
   const handleAction = (action: string, hazard: Hazard) => {
     setSelectedHazard(hazard);
-    setShowDetailModal(true);
+    if (action === 'view') {
+      setShowDetailModal(true);
+      return;
+    }
+    if (action === 'assign') {
+      setShowDetailModal(false);
+      setShowAssignModal(true);
+      return;
+    }
+    if (action === 'submit') {
+      setShowDetailModal(false);
+      setShowRectifyModal(true);
+      return;
+    }
+    if (action === 'review') {
+      const reviewer = users.find((u) => u.role === 'safety_manager')?.name || '安全管理员';
+      reviewHazard(hazard.id, true, reviewer);
+      setShowDetailModal(false);
+      return;
+    }
+    if (action === 'reject') {
+      setShowDetailModal(false);
+      setShowRejectModal(true);
+      return;
+    }
   };
 
-  const handleCardClick = (hazard: Hazard) => {
-    setSelectedHazard(hazard);
-    setShowDetailModal(true);
+  const handleRejectConfirm = (remark: string) => {
+    if (!selectedHazard) return;
+    const reviewer = users.find((u) => u.role === 'safety_manager')?.name || '安全管理员';
+    reviewHazard(selectedHazard.id, false, reviewer, remark);
+    setShowRejectModal(false);
+    setSelectedHazard(null);
   };
-
-  const relatedRectifies = selectedHazard
-    ? hazardRectifies.filter((r) => r.hazard_id === selectedHazard.id)
-    : [];
 
   return (
     <div className="p-6 h-full flex flex-col">
@@ -914,7 +1474,7 @@ export default function Hazards() {
                 key={hazard.id}
                 hazard={hazard}
                 onAction={handleAction}
-                onClick={() => handleCardClick(hazard)}
+                onClick={() => openDetail(hazard)}
               />
             ))}
           </div>
@@ -929,19 +1489,45 @@ export default function Hazards() {
         )}
       </div>
 
-      <RegisterHazardModal
+      <RegisterModal
         open={showRegisterModal}
         onClose={() => setShowRegisterModal(false)}
       />
 
-      <HazardDetailModal
+      <AssignModal
+        hazard={selectedHazard}
+        open={showAssignModal}
+        onClose={() => {
+          setShowAssignModal(false);
+          setSelectedHazard(null);
+        }}
+      />
+
+      <RectifyModal
+        hazard={selectedHazard}
+        open={showRectifyModal}
+        onClose={() => {
+          setShowRectifyModal(false);
+          setSelectedHazard(null);
+        }}
+      />
+
+      <RejectModal
+        hazard={selectedHazard}
+        open={showRejectModal}
+        onClose={() => {
+          setShowRejectModal(false);
+          setSelectedHazard(null);
+        }}
+        onConfirm={handleRejectConfirm}
+      />
+
+      <DetailModal
         hazard={selectedHazard}
         rectifies={relatedRectifies}
         open={showDetailModal}
-        onClose={() => {
-          setShowDetailModal(false);
-          setSelectedHazard(null);
-        }}
+        onClose={closeDetail}
+        onAction={handleAction}
       />
     </div>
   );
