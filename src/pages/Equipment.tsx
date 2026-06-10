@@ -121,11 +121,16 @@ export default function Equipment() {
   const [searchText, setSearchText] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [showCycleModal, setShowCycleModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState<Equipment | null>(null);
+  const [selectedEquipmentId, setShowDetailModalId] = useState<string | null>(null);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState<Equipment | null>(null);
   const [showSingleCycleModal, setShowSingleCycleModal] = useState<Equipment | null>(null);
   const [singleCycleValue, setSingleCycleValue] = useState<CheckCycle>(CheckCycle.QUARTERLY);
   const [detailTab, setDetailTab] = useState<'info' | 'history'>('info');
+
+  const selectedEquipment = useMemo(() => {
+    if (!selectedEquipmentId) return null;
+    return equipments.find((e) => e.id === selectedEquipmentId) || null;
+  }, [selectedEquipmentId, equipments]);
   const [cycleSettings, setCycleSettings] = useState<Record<string, CheckCycle>>(() => {
     const settings: Record<string, CheckCycle> = {};
     equipmentCategoryList.forEach((cat) => {
@@ -184,11 +189,11 @@ export default function Equipment() {
     ? getMaintenancesByEquipmentId(showMaintenanceModal.id)
     : [];
 
-  const equipmentChangeLogs = showDetailModal
+  const equipmentChangeLogs = selectedEquipment
     ? changeLogs
         .filter(
           (log) =>
-            log.target_type === 'equipment' && log.target_id === showDetailModal.id
+            log.target_type === 'equipment' && log.target_id === selectedEquipment.id
         )
         .sort((a, b) => b.operated_at.localeCompare(a.operated_at))
     : [];
@@ -207,8 +212,8 @@ export default function Equipment() {
   };
 
   const handleDetailCycleChange = (cycle: CheckCycle) => {
-    if (showDetailModal) {
-      updateSingleEquipmentCycle(showDetailModal.id, cycle);
+    if (selectedEquipment) {
+      updateSingleEquipmentCycle(selectedEquipment.id, cycle);
       showToast('检查周期已更新');
     }
   };
@@ -409,7 +414,7 @@ export default function Equipment() {
                         <td className="py-4 px-5">
                           <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => setShowDetailModal(eq)}
+                              onClick={() => setShowDetailModalId(eq.id)}
                               className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                               title="查看详情"
                             >
@@ -654,22 +659,22 @@ export default function Equipment() {
         </div>
       )}
 
-      {showDetailModal && (
+      {selectedEquipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/50"
-            onClick={() => setShowDetailModal(null)}
+            onClick={() => setShowDetailModalId(null)}
           />
           <div className="relative bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl mx-4 flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">
-                  {showDetailModal.name}
+                  {selectedEquipment.name}
                 </h2>
-                <p className="text-sm text-gray-500 mt-1 font-mono">{showDetailModal.code}</p>
+                <p className="text-sm text-gray-500 mt-1 font-mono">{selectedEquipment.code}</p>
               </div>
               <button
-                onClick={() => setShowDetailModal(null)}
+                onClick={() => setShowDetailModalId(null)}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
@@ -717,22 +722,22 @@ export default function Equipment() {
                     <span
                       className={cn(
                         'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border',
-                        statusStyles[showDetailModal.status]
+                        statusStyles[selectedEquipment.status]
                       )}
                     >
-                      {statusIcons[showDetailModal.status]}
-                      {EquipmentStatusLabels[showDetailModal.status]}
+                      {statusIcons[selectedEquipment.status]}
+                      {EquipmentStatusLabels[selectedEquipment.status]}
                     </span>
                     <span className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium border border-indigo-100">
-                      {EquipmentCategoryLabels[showDetailModal.category]}
+                      {EquipmentCategoryLabels[selectedEquipment.category]}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-5 pt-2">
-                    <DetailItem label="设备型号" value={showDetailModal.model} />
-                    <DetailItem label="安装日期" value={showDetailModal.install_date} />
-                    <DetailItem label="所属建筑" value={getBuildingById(showDetailModal.building_id)?.name || '-'} />
-                    <DetailItem label="上次检查" value={showDetailModal.last_check_date} />
+                    <DetailItem label="设备型号" value={selectedEquipment.model} />
+                    <DetailItem label="安装日期" value={selectedEquipment.install_date} />
+                    <DetailItem label="所属建筑" value={getBuildingById(selectedEquipment.building_id)?.name || '-'} />
+                    <DetailItem label="上次检查" value={selectedEquipment.last_check_date} />
                   </div>
 
                   <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-4">
@@ -740,11 +745,11 @@ export default function Equipment() {
                       <div>
                         <div className="text-xs text-gray-500 mb-1">检查周期</div>
                         <div className="text-lg font-bold text-indigo-700">
-                          {CheckCycleLabels[showDetailModal.check_cycle]}
+                          {CheckCycleLabels[selectedEquipment.check_cycle]}
                         </div>
                       </div>
                       <button
-                        onClick={() => handleOpenSingleCycleModal(showDetailModal)}
+                        onClick={() => handleOpenSingleCycleModal(selectedEquipment)}
                         className="flex items-center gap-1.5 px-3 py-2 bg-white text-indigo-600 rounded-lg text-sm font-medium hover:bg-indigo-50 transition-colors border border-indigo-200"
                       >
                         <RefreshCw className="w-4 h-4" />
@@ -758,13 +763,13 @@ export default function Equipment() {
                         <span
                           className={cn(
                             'text-base font-semibold',
-                            isOverdue(showDetailModal.next_check_date)
+                            isOverdue(selectedEquipment.next_check_date)
                               ? 'text-red-600'
                               : 'text-gray-900'
                           )}
                         >
-                          {showDetailModal.next_check_date}
-                          {isOverdue(showDetailModal.next_check_date) && (
+                          {selectedEquipment.next_check_date}
+                          {isOverdue(selectedEquipment.next_check_date) && (
                             <span className="ml-1 text-xs font-medium">(已逾期)</span>
                           )}
                         </span>
@@ -792,7 +797,7 @@ export default function Equipment() {
 
             <div className="flex items-center justify-end p-6 border-t border-gray-100 bg-gray-50/50">
               <button
-                onClick={() => setShowDetailModal(null)}
+                onClick={() => setShowDetailModalId(null)}
                 className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
               >
                 关闭

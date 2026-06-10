@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Plus,
   Filter,
@@ -66,9 +67,18 @@ const statusSteps: { key: HazardStatus; label: string; icon: typeof CircleDot }[
   { key: HazardStatus.CLOSED, label: '已关闭', icon: DoorOpen },
 ];
 
-function getDeptDisplay(dept: string): { text: string; isPlaceholder: boolean } {
+function getDeptDisplay(
+  dept: string,
+  departments?: { id: string; name: string }[]
+): { text: string; isPlaceholder: boolean } {
   if (!dept || dept.trim() === '') {
     return { text: '待派单', isPlaceholder: true };
+  }
+  if (departments && departments.length > 0) {
+    const found = departments.find((d) => d.id === dept);
+    if (found) {
+      return { text: found.name, isPlaceholder: false };
+    }
   }
   return { text: dept, isPlaceholder: false };
 }
@@ -234,6 +244,7 @@ function HazardCard({
   onAction: (action: string, hazard: Hazard) => void;
   onClick: () => void;
 }) {
+  const { departments } = useAppStore();
   const overdue = isOverdue(hazard.deadline);
   const progress = getProgressByStatus(hazard.status);
   const actions = getActionButtons(hazard.status);
@@ -297,9 +308,9 @@ function HazardCard({
 
         <div className="flex items-center gap-4 text-sm">
           <div className="flex items-center gap-1.5">
-            <Building2 size={14} className={cn('shrink-0', getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-400')} />
-            <span className={cn(getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-600')}>
-              {getDeptDisplay(hazard.responsible_dept).text}
+            <Building2 size={14} className={cn('shrink-0', getDeptDisplay(hazard.responsible_dept, departments).isPlaceholder ? 'text-slate-400' : 'text-slate-400')} />
+            <span className={cn(getDeptDisplay(hazard.responsible_dept, departments).isPlaceholder ? 'text-slate-400' : 'text-slate-600')}>
+              {getDeptDisplay(hazard.responsible_dept, departments).text}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -963,7 +974,7 @@ function ReviewModal({
   onClose: () => void;
   onConfirm: (passed: boolean, reviewRemark: string) => void;
 }) {
-  const { users } = useAppStore();
+  const { users, departments } = useAppStore();
   const [reviewType, setReviewType] = useState<'pass' | 'reject' | null>(null);
   const [reviewRemark, setReviewRemark] = useState('');
 
@@ -1029,8 +1040,8 @@ function ReviewModal({
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">责任部门</p>
-                <p className={cn('text-sm font-medium', getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
-                  {getDeptDisplay(hazard.responsible_dept).text}
+                <p className={cn('text-sm font-medium', getDeptDisplay(hazard.responsible_dept, departments).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
+                  {getDeptDisplay(hazard.responsible_dept, departments).text}
                 </p>
               </div>
               <div>
@@ -1213,6 +1224,7 @@ function DetailModal({
   onClose: () => void;
   onAction: (action: string, hazard: Hazard) => void;
 }) {
+  const { departments } = useAppStore();
   if (!open || !hazard) return null;
 
   const currentStepIndex = statusSteps.findIndex((s) => s.key === hazard.status);
@@ -1464,8 +1476,8 @@ function DetailModal({
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">责任部门</p>
-                <p className={cn('text-sm font-medium', getDeptDisplay(hazard.responsible_dept).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
-                  {getDeptDisplay(hazard.responsible_dept).text}
+                <p className={cn('text-sm font-medium', getDeptDisplay(hazard.responsible_dept, departments).isPlaceholder ? 'text-slate-400' : 'text-slate-800')}>
+                  {getDeptDisplay(hazard.responsible_dept, departments).text}
                 </p>
               </div>
               <div>
@@ -1664,15 +1676,33 @@ export default function Hazards() {
     getRectifiesByHazardId,
   } = useAppStore();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [levelFilter, setLevelFilter] = useState<HazardLevel | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<HazardStatus | 'all'>('all');
   const [deptFilter, setDeptFilter] = useState('');
   const [showRegisterModal, setShowRegisterModal] = useState(false);
-  const [selectedHazard, setSelectedHazard] = useState<Hazard | null>(null);
+  const [selectedHazardId, setSelectedHazardId] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showRectifyModal, setShowRectifyModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+
+  const selectedHazard = useMemo(() => {
+    if (!selectedHazardId) return null;
+    return hazards.find((h) => h.id === selectedHazardId) || null;
+  }, [selectedHazardId, hazards]);
+
+  useEffect(() => {
+    const hazardId = searchParams.get('hazard');
+    if (hazardId) {
+      const hazard = hazards.find((h) => h.id === hazardId);
+      if (hazard) {
+        setSelectedHazardId(hazardId);
+        setShowDetailModal(true);
+      }
+    }
+  }, [searchParams, hazards]);
 
   const levelCounts = useMemo(() => {
     const counts: Record<string, number> = { all: hazards.length };
@@ -1697,17 +1727,19 @@ export default function Hazards() {
   }, [selectedHazard, hazardRectifies]);
 
   const openDetail = (hazard: Hazard) => {
-    setSelectedHazard(hazard);
+    setSelectedHazardId(hazard.id);
     setShowDetailModal(true);
+    setSearchParams({ hazard: hazard.id }, { replace: true });
   };
 
   const closeDetail = () => {
     setShowDetailModal(false);
-    setSelectedHazard(null);
+    setSelectedHazardId(null);
+    setSearchParams({}, { replace: true });
   };
 
   const handleAction = (action: string, hazard: Hazard) => {
-    setSelectedHazard(hazard);
+    setSelectedHazardId(hazard.id);
     if (action === 'view') {
       setShowDetailModal(true);
       return;
@@ -1734,7 +1766,7 @@ export default function Hazards() {
     const reviewer = users.find((u) => u.role === 'safety_manager') || users[0];
     reviewHazard(selectedHazard.id, passed, reviewer.name, reviewer.id, reviewRemark);
     setShowReviewModal(false);
-    setSelectedHazard(null);
+    setSelectedHazardId(null);
   };
 
   return (
@@ -1866,7 +1898,7 @@ export default function Hazards() {
         open={showAssignModal}
         onClose={() => {
           setShowAssignModal(false);
-          setSelectedHazard(null);
+          setSelectedHazardId(null);
         }}
       />
 
@@ -1875,7 +1907,7 @@ export default function Hazards() {
         open={showRectifyModal}
         onClose={() => {
           setShowRectifyModal(false);
-          setSelectedHazard(null);
+          setSelectedHazardId(null);
         }}
       />
 
@@ -1885,7 +1917,7 @@ export default function Hazards() {
         open={showReviewModal}
         onClose={() => {
           setShowReviewModal(false);
-          setSelectedHazard(null);
+          setSelectedHazardId(null);
         }}
         onConfirm={handleReviewConfirm}
       />

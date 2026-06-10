@@ -1327,7 +1327,7 @@ function TaskDetailSidebar({
     users,
     departments,
     inspectionRecords,
-    getHazardsByTaskId,
+    hazards,
   } = useAppStore();
 
   const taskRecords: InspectionRecord[] = useMemo(() => {
@@ -1356,8 +1356,8 @@ function TaskDetailSidebar({
 
   const taskHazards = useMemo(() => {
     if (!task) return [];
-    return getHazardsByTaskId(task.id);
-  }, [task, getHazardsByTaskId]);
+    return hazards.filter((h) => h.source_task_id === task.id);
+  }, [task, hazards]);
 
   const linkedHazardCount = useMemo(() => {
     return abnormalRecords.filter((r) => r.hazard_id).length;
@@ -1655,7 +1655,7 @@ function TaskDetailSidebar({
                       )}
                       {hazard ? (
                         <div
-                          onClick={() => navigate('/hazards')}
+                          onClick={() => navigate(`/hazards?hazard=${hazard.id}`)}
                           className="cursor-pointer bg-white rounded-lg p-3 border border-slate-200 hover:border-sky-300 hover:shadow-sm transition-all"
                         >
                           <div className="flex items-center justify-between mb-2">
